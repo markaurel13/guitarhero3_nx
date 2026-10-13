@@ -393,7 +393,12 @@ REXCVAR_DEFINE_BOOL(sa2_native_output_no_wait, true, "SA2 renderer",
 // with the draw of the previous pass). BOTTOM_OF_PIPE is PIPELINE_LOCATION_ALL: it is released when all
 // previous work finishes.
 
-REXCVAR_DEFINE_BOOL(sa2_native_precise_marks, true, "SA2 renderer",
+#if REX_PLATFORM_SWITCH
+#define SA2_PRECISE_MARKS_DEFAULT false
+#else
+#define SA2_PRECISE_MARKS_DEFAULT true
+#endif
+REXCVAR_DEFINE_BOOL(sa2_native_precise_marks, SA2_PRECISE_MARKS_DEFAULT, "SA2 renderer",
                     "Native renderer (measurement): GPU timestamps between categories use BOTTOM_OF_PIPE "
                     "(released when the previous work finishes) instead of TOP_OF_PIPE (released when the command "
                     "is read): exact per-category breakdown. Does not change the image");
