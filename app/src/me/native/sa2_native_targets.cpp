@@ -2280,10 +2280,20 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       copy.dstOffset = {aX(int32_t(dx)), aY(int32_t(dy)), 0};
       copy.extent = {img_width, img_height, 1};
       copy = HostCopy(*depth, resolved->image, copy);  // sa2-nx render resolution
-      BarrierBeforeCopyResolve();
-      copy_image_(commands_work_, depth->image, VK_IMAGE_LAYOUT_GENERAL,
-                     resolved->image.image, VK_IMAGE_LAYOUT_GENERAL, 1, &copy);
-      BarrierAfterCopyResolve();
+      if (REXCVAR_GET(sa2_native_batch_resolve_barriers)) {
+        if (copy_batch_active_ && copy_batch_last_dst_ == depth->image) {
+          EndCopyBatch();
+        }
+        BeginCopyBatch();
+        copy_image_(commands_work_, depth->image, VK_IMAGE_LAYOUT_GENERAL,
+                       resolved->image.image, VK_IMAGE_LAYOUT_GENERAL, 1, &copy);
+        copy_batch_last_dst_ = resolved->image.image;
+      } else {
+        BarrierBeforeCopyResolve();
+        copy_image_(commands_work_, depth->image, VK_IMAGE_LAYOUT_GENERAL,
+                       resolved->image.image, VK_IMAGE_LAYOUT_GENERAL, 1, &copy);
+        BarrierAfterCopyResolve();
+      }
       ++copies_;
       ResolvedWritten(base_resolved, uint64_t(img_width) * img_height);
       return;
@@ -2337,10 +2347,20 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       return;
     }
     copy = HostCopy(*depth, resolved->image, copy);  // sa2-nx render resolution
-    BarrierBeforeCopyResolve();
-    copy_image_(commands_work_, depth->image, VK_IMAGE_LAYOUT_GENERAL,
-                   resolved->image.image, VK_IMAGE_LAYOUT_GENERAL, 1, &copy);
-    BarrierAfterCopyResolve();
+    if (REXCVAR_GET(sa2_native_batch_resolve_barriers)) {
+      if (copy_batch_active_ && copy_batch_last_dst_ == depth->image) {
+        EndCopyBatch();
+      }
+      BeginCopyBatch();
+      copy_image_(commands_work_, depth->image, VK_IMAGE_LAYOUT_GENERAL,
+                     resolved->image.image, VK_IMAGE_LAYOUT_GENERAL, 1, &copy);
+      copy_batch_last_dst_ = resolved->image.image;
+    } else {
+      BarrierBeforeCopyResolve();
+      copy_image_(commands_work_, depth->image, VK_IMAGE_LAYOUT_GENERAL,
+                     resolved->image.image, VK_IMAGE_LAYOUT_GENERAL, 1, &copy);
+      BarrierAfterCopyResolve();
+    }
     ++copies_;
     ResolvedWritten(base_resolved, uint64_t(width) * height);
   }
@@ -2910,12 +2930,12 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       return nullptr;
     }
     Prepare(*image);
+    EndCopyBatch();
     if (REXCVAR_GET(sa2_native_edram_alias_mode) == 4) {
       BeforeWriteColor(*image);
       if (!RestoreContent(*image)) return nullptr;
       return image; // Acquired before DrawsVulkan can start a render pass.
     }
-    EndCopyBatch();
     ActivateTargetColor(base, pitch, *image);
     BeforeWriteColor(*image);  // sa2_native_lazy_front
     // Mandatory since color is also swapped. Here a pass starts that draws on top; if the content went away
