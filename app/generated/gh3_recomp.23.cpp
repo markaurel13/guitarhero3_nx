@@ -13798,12 +13798,26 @@ loc_823ED070:
 loc_823ED080:
 	// cmplwi cr6,r23,0
 	ctx.cr6.compare<uint32_t>(ctx.r23.u32, 0, ctx.xer);
+#if defined(__SWITCH__)
+	if (ctx.cr6.eq) {
+		rex::thread::Sleep(std::chrono::milliseconds(1));
+		goto loc_823ECEC4;
+	}
+#else
 	// beq cr6,0x823ecec4
 	if (ctx.cr6.eq) goto loc_823ECEC4;
+#endif
 	// cmpwi cr6,r27,-1
 	ctx.cr6.compare<int32_t>(ctx.r27.s32, -1, ctx.xer);
+#if defined(__SWITCH__)
+	if (!ctx.cr6.eq) {
+		rex::thread::Sleep(std::chrono::milliseconds(1));
+		goto loc_823ECEC4;
+	}
+#else
 	// bne cr6,0x823ecec4
 	if (!ctx.cr6.eq) goto loc_823ECEC4;
+#endif
 loc_823ED090:
 	// addi r1,r1,160
 	ctx.r1.s64 = ctx.r1.s64 + 160;

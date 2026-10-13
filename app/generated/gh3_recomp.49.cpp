@@ -12691,6 +12691,9 @@ DEFINE_REX_FUNC(sub_82384DE0) {
 	// lis r31,-32049
 	ctx.r31.s64 = -2100363264;
 loc_82384DFC:
+#if defined(__SWITCH__)
+	rex::thread::Sleep(std::chrono::microseconds(500));
+#endif
 	// lwz r11,-19024(r31)
 	ctx.r11.u64 = REX_LOAD_U32(ctx.r31.u32 + -19024);
 	// clrlwi r10,r11,31
