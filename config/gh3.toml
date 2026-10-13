@@ -33,8 +33,38 @@
 sa2_renderer_native = true
 sa2_shaders_index = true
 sa2_render_height_handheld = 720
-sa2_render_height_docked = 1080
+sa2_render_height_docked = 720
 sa2_gpu_boost = true
+sa2_shader_misses = "shader_misses"
+sa2_native_logical_resolved_size = false
+
+# Optimizaciones CPU y Ring Thread (60 FPS)
+sa2_cpu_enhancements = true
+sa2_noncpu_enhancements = true
+sa2_native_flat_identity = true
+sa2_native_fast_pair = true
+sa2_native_raw_microcode = true
+sa2_native_pm4_fast = true
+sa2_native_compare_fast = true
+sa2_native_fast_copy = true
+sa2_native_upload_memory = 1
+sa2_native_deferred_recording = true
+sa2_deferred_native_fast = true
+sa2_deferred_native_update = true
+thread_signal_skip_idle = true
+sa2_native_edram4_stencil_enable = false
+sa2_native_edram4_stencil_inert = true
+sa2_native_edram4_stencil_lazy = true
+sa2_native_edram4_stencil_copy = false
+sa2_native_edram4_fast = true
+sa2_native_conversion_frag = true
+sa2_native_force_1x_msaa = true
+sa2_native_edram4_clear_color0 = true
+sa2_native_zcull_1x_depth = true
+sa2_native_skip_unread_resolves = true
+sa2_native_batch_resolve_barriers = true
+sa2_gpu_marks_categories = false
+sa2_native_reads_each = 8
 
 # Fallback si sa2_renderer_native fuese false
 gpu_plugin = "xenos"
@@ -132,7 +162,7 @@ ui_theme_desc = "0A0A0AC8"  # painel de descricao
 #          arrisca artefactos nas notas, que e o que estas a olhar.
 #
 # ATENCAO: todos estes cvars sao kRequiresRestart -- mudar exige reabrir o jogo.
-present_effect = "fsr"
+present_effect = "bilinear"
 present_fsr_sharpness_reduction = 0.2   # menos = mais nitido
 
 # ---------------------------------------------------------------------------
