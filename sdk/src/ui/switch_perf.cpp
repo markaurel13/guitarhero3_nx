@@ -89,6 +89,7 @@ Result __real_nwindowQueueBuffer(NWindow* nw, s32 slot, const NvMultiFence* fenc
 Result __real_bqDequeueBuffer(Binder* b, bool async, u32 width, u32 height, s32 format, u32 usage, s32* buf,
                               NvMultiFence* fence);
 void __real_svcSleepThread(s64 nano);
+void RexSwitchPerfExclusiveCore(int core);
 }
 
 namespace {
@@ -365,10 +366,11 @@ void ApplyExclusiveCore(FILE* f, const std::vector<size_t>& order) {
     for (size_t i : order) {
       const Slot& s = g_slots[i];
       if (std::strncmp(s.name, "XThread", 7) != 0) continue;
-      if (s.cpu < 60.0) break;
+      if (s.cpu < 5.0 && order.size() > 2) break;
       if (R_SUCCEEDED(svcSetThreadCoreMask(s.handle.load(), k, bit))) {
         pinned = s.handle.load();
-        std::fprintf(f, "-- exclusive core %d for \"%s\" (CPU %.1f%%)\n", k, s.name, s.cpu);
+        if (f) std::fprintf(f, "-- exclusive core %d for \"%s\" (CPU %.1f%%)\n", k, s.name, s.cpu);
+        std::fprintf(stderr, "[perf] Exclusive core %d for \"%s\" (CPU %.1f%%)\n", k, s.name, s.cpu);
       }
       break;
     }
@@ -384,7 +386,7 @@ void ApplyExclusiveCore(FILE* f, const std::vector<size_t>& order) {
       if (s.cpu < 35.0) break;
       if (R_SUCCEEDED(svcSetThreadPriority(s.handle.load(), 0x2B))) {
         raised = s.handle.load();
-        std::fprintf(f, "-- priority 0x2B for \"%s\" (CPU %.1f%%)\n", s.name, s.cpu);
+        if (f) std::fprintf(f, "-- priority 0x2B for \"%s\" (CPU %.1f%%)\n", s.name, s.cpu);
       }
       break;
     }
@@ -452,12 +454,11 @@ void Report(u64 elapsed_ticks, u64 tick_freq, u64 counters_last[kCounterCount],
             [](size_t a, size_t b) { return g_slots[a].cpu > g_slots[b].cpu; });
 
   FILE* f = std::fopen(ReportPath().c_str(), "a");
+  ApplyExclusiveCore(f, order);
   if (!f) {
     g_sample_count = 0;
     return;
   }
-
-  ApplyExclusiveCore(f, order);
 
   u64 lim_used = 0, lim_cap = 0, proc_used = 0, proc_total = 0;
   LimitOfMapping(&lim_used, &lim_cap, &proc_used, &proc_total);
@@ -967,10 +968,28 @@ void ProfilerMain(void*) {
   TicOverlay overlay;
   const u64 start = armGetSystemTick();
   overlay.Boot(start);
+
+  {
+    const std::string v = rex::cvar::GetFlagByName("switch_exclusive_core");
+    if (!v.empty() && v != "-1") {
+      RexSwitchPerfExclusiveCore(std::atoi(v.c_str()));
+    } else if (v.empty()) {
+      RexSwitchPerfExclusiveCore(0);
+    }
+  }
+
   const u64 warmup = (kStartDelayNs / 1000000ULL) * tick_freq / 1000ULL;
   while (armGetSystemTick() - start < warmup) {
     __real_svcSleepThread(kPassiveIntervalNs);
     overlay.Step(armGetSystemTick(), tick_freq, false);
+    if (g_exclusive_core.load(std::memory_order_relaxed) >= 0) {
+      std::vector<size_t> order;
+      for (size_t i = 0; i < kMaxThreads; ++i) {
+        if (g_slots[i].handle.load()) order.push_back(i);
+      }
+      std::sort(order.begin(), order.end(), [](size_t a, size_t b) { return g_slots[a].cpu > g_slots[b].cpu; });
+      ApplyExclusiveCore(nullptr, order);
+    }
   }
 
   // Invasive sampling is only enabled explicitly, for diagnostics.
@@ -1075,6 +1094,14 @@ void ProfilerMain(void*) {
     const u64 now = armGetSystemTick();
     // Once per second, FPS and resolution for the overlay (the profile report runs every 10 s).
     overlay.Step(now, tick_freq, true);
+    if (g_exclusive_core.load(std::memory_order_relaxed) >= 0) {
+      std::vector<size_t> order;
+      for (size_t i = 0; i < kMaxThreads; ++i) {
+        if (g_slots[i].handle.load()) order.push_back(i);
+      }
+      std::sort(order.begin(), order.end(), [](size_t a, size_t b) { return g_slots[a].cpu > g_slots[b].cpu; });
+      ApplyExclusiveCore(nullptr, order);
+    }
     if (report && now - report_start >= kReportSeconds * tick_freq) {
       Report(now - report_start, tick_freq, counters_last, kModes[mode_index].name);
       if (g_ab_active.load(std::memory_order_relaxed)) {

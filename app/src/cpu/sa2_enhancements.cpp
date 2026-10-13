@@ -34,6 +34,10 @@ REXCVAR_DEFINE_BOOL(switch_profile_stacks, false, "SA2 enhancements",
 REXCVAR_DEFINE_BOOL(switch_profile_report, true, "SA2 enhancements",
                     "Switch: the profiler writes its 10-second report to logs/rex/rex_profile.log (false = no file)")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_INT32(switch_exclusive_core, 0, "SA2 enhancements",
+                     "Switch: exclusive CPU core for hottest guest thread (-1=off, 0..2, 10+K=light guest allowed)")
+    .range(-1, 32)
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 REXCVAR_DEFINE_INT32(sa2_enhancements_report_s, 10, "SA2 enhancements",
                      "Seconds between two '[enh] uses' log lines (0 = no periodic line)")
     .range(0, 3600)
@@ -128,11 +132,10 @@ constexpr External kExternal[] = {
     // vkFlushMappedMemoryRanges before each submit. The console measured 5,251 MB/s of CPU writes there against
     // 2,506 MB/s in the uncached type the SDK picks; the shared constants already use the cached type this way.
     {"sa2_native_upload_memory", kCpu, "1", "0"},
-    // Round 5: deferred Vulkan recording and its two refinements, on (PC lockstep captures pixel-identical; the
-    // 100+ ms PC frames it once gave were Windows' timer period, fixed). configs/sa2_test_deferred_off.toml: the A/B.
-    {"sa2_native_deferred_recording", kCpu, "true", "false"},
-    {"sa2_deferred_native_fast", kCpu, "true", "false"},
-    {"sa2_deferred_native_update", kCpu, "true", "false"},
+    // Round 5: deferred Vulkan recording is OFF on Switch to avoid thread starvation on 3 cores.
+    {"sa2_native_deferred_recording", kCpu, nullptr, "false"},
+    {"sa2_deferred_native_fast", kCpu, nullptr, "false"},
+    {"sa2_deferred_native_update", kCpu, nullptr, "false"},
     // sasrt-nx's CPU round (2026-10-12), the SDK's key: no condition-variable notify (a syscall on Horizon) for an
     // event or semaphore nobody is blocked on. Read once, at the first signal (threading_posix.cpp, which only the
     // Switch build compiles: the key does not exist on the PC).
