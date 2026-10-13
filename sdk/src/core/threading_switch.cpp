@@ -372,6 +372,10 @@ void RexSwitchDescribeThreadFailure(size_t stack_size, char* out, size_t out_len
            mirror != nullptr ? "has room" : "is FULL", (long long)threads_now, (long long)threads_cap);
 }
 
+void RexSwitchYield(void) {
+  svcSleepThread(0);
+}
+
 }  // extern "C"
 
 #endif  /* REX_PLATFORM_SWITCH */

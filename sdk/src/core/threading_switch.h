@@ -180,6 +180,9 @@ int RexSwitchCurrentCore(void);
  */
 void RexSwitchDescribeThreadFailure(size_t stack_size, char* out, size_t out_len);
 
+/* Yields the current time slice to any runnable thread on Horizon OS. */
+void RexSwitchYield(void);
+
 #ifdef __cplusplus
 }
 #endif

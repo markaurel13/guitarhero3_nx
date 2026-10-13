@@ -265,7 +265,7 @@ void StartReport() {
       if (pinned_h) {
         REXLOG_INFO("[perf] Core 0 exclusive: pinned guest thread \"{}\" (handle {:#x})", pinned_name, pinned_h);
       }
-      char threads_summary[512]{};
+      char threads_summary[1024]{};
       if (RexSwitchPerfGetTopThreads(threads_summary, sizeof(threads_summary)) > 0) {
         REXLOG_INFO("[perf] Active threads:{}", threads_summary);
       }

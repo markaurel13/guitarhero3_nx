@@ -231,7 +231,11 @@ uint32_t current_thread_system_id() {
 }
 
 void MaybeYield() {
+#if defined(__SWITCH__)
+  RexSwitchYield();
+#else
   sched_yield();
+#endif
   __sync_synchronize();
 }
 

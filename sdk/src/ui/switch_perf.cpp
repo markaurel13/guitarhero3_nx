@@ -1259,7 +1259,12 @@ void RexSwitchPerfExclusiveCore(int core) {
   // 10 + K: core K, light guest threads allowed on it too.
   // 10 + K: light guest threads allowed on K; 20 + K: the render thread raised above the ring thread.
   // Both may be combined: 30 + K.
-  if (core < 0) return;
+  if (core < 0) {
+    g_core_render.store(false, std::memory_order_relaxed);
+    g_light_core.store(false, std::memory_order_relaxed);
+    g_exclusive_core.store(-1, std::memory_order_relaxed);
+    return;
+  }
   g_core_render.store(core >= 20, std::memory_order_relaxed);
   g_light_core.store((core % 20) >= 10, std::memory_order_relaxed);
   g_exclusive_core.store(core % 10, std::memory_order_relaxed);
