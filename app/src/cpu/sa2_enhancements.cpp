@@ -126,7 +126,7 @@ constexpr External kExternal[] = {
     {"sa2_native_fast_copy", kCpu, "true", "false"},
     // Round 6: 2 = the hardware CRC32 pair on the Switch (+crc); a build without it falls back to 1 by itself.
     {"sa2_native_fingerprint_mode", kCpu, "2", "0"},
-    {"sa2_native_dedupe_max_fingerprint", kCpu, "16384", "0"},
+    {"sa2_native_dedupe_max_fingerprint", kCpu, "1", "0"},
     {"sa2_native_indices_cache", kCpu, "true", "false"},
     {"sa2_native_pipelines_prewarm", kCpu, "true", "false"},
     // Round 3: the upload buffer (every draw's vertices and indices) in cached memory, published with

@@ -132,9 +132,13 @@ int creat(const char* path, mode_t mode) {
  * handle.
  */
 void RexSwitchPerfSetThreadName(u32 handle, const char* name);
+u32 RexSwitchHandleFor(pthread_t thread);
 
 int pthread_setname_np(pthread_t thread, const char* name) {
-    if (pthread_equal(thread, pthread_self()))
+    u32 h = RexSwitchHandleFor(thread);
+    if (h != 0)
+        RexSwitchPerfSetThreadName(h, name);
+    else if (pthread_equal(thread, pthread_self()))
         RexSwitchPerfSetThreadName(threadGetCurHandle(), name);
     return 0;
 }

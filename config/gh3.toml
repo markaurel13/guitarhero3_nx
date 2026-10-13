@@ -58,6 +58,7 @@ sa2_cpu_main_thread_priority = true
 sa2_main_thread_priority = 58
 sa2_native_texture_interval_max = 256
 sa2_native_fingerprints_kb_frame = 2048
+sa2_native_dedupe_max_fingerprint = 1
 thread_signal_skip_idle = true
 sa2_native_slots_work = 4
 sa2_native_edram4_stencil_enable = false

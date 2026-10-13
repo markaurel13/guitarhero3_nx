@@ -3065,7 +3065,8 @@ class DrawsVulkanImpl final : public DrawsVulkan {
           indices_cache_rotate = order == xenos::Endian::k8in16;
           indices_cache_key = (uint64_t(base & 0x1FFFFFFF) << 2) | (indices_cache_rotate ? 1u : 0u);
           const uint64_t bytes_i = uint64_t(count) * 2;
-          indices_cache_fingerprint = bytes_i <= 16384 ? std::max<uint64_t>(1, RangeFingerprint(data, size_t(bytes_i))) : 0;
+          static const uint32_t max_fgp = uint32_t(REXCVAR_GET(sa2_native_dedupe_max_fingerprint));
+          indices_cache_fingerprint = (max_fgp > 1 && bytes_i <= 16384) ? std::max<uint64_t>(1, RangeFingerprint(data, size_t(bytes_i))) : 0;
           IndicesEntryCache& e = indices_cache_[(indices_cache_key * 0x9E3779B97F4A7C15ull >> 40) &
                                                   (indices_cache_.size() - 1)];
           if (e.frame == frame_ && e.generation == indices_cache_generation_ &&
@@ -3576,7 +3577,8 @@ class DrawsVulkanImpl final : public DrawsVulkan {
       // Mass Effect on Switch: the full XXH3 of every range was ~18 % of the ring thread. With
       // sa2_native_dedupe_sample the check hashes every 8th block (SampleFingerprint) instead.
       static const uint32_t max_fingerprint = uint32_t(REXCVAR_GET(sa2_native_dedupe_max_fingerprint));
-      const bool fingerprinted = dedupe_active_ && type != 8 && (!max_fingerprint || source.bytes <= max_fingerprint);
+      const bool fingerprinted = dedupe_active_ && type != 8 && max_fingerprint != 1 &&
+                                 (!max_fingerprint || source.bytes <= max_fingerprint);
       const uint64_t vertices_fingerprint = fingerprinted
           ? std::max<uint64_t>(1, REXCVAR_GET(sa2_native_dedupe_sample)
                                       ? SampleFingerprint(source.data, source.bytes, source.bytes)
@@ -3906,7 +3908,8 @@ class DrawsVulkanImpl final : public DrawsVulkan {
       const IndexedSource& source = indexed_sources[k];
       if (!source.bytes) continue;
       VkDeviceSize offset = 0;
-      const uint64_t fingerprint = dedupe_active_ ? std::max<uint64_t>(1, REXCVAR_GET(sa2_native_dedupe_sample)
+      static const uint32_t max_fgp_indexed = uint32_t(REXCVAR_GET(sa2_native_dedupe_max_fingerprint));
+      const uint64_t fingerprint = (dedupe_active_ && max_fgp_indexed != 1) ? std::max<uint64_t>(1, REXCVAR_GET(sa2_native_dedupe_sample)
                                        ? SampleFingerprint(source.data, source.bytes, source.bytes)
                                        : XXH3_64bits(source.data, source.bytes)) : 0;
       if (!(dedupe_active_ &&

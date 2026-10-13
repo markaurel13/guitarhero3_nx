@@ -345,6 +345,9 @@ namespace {
 // before Create().
 int SwitchPriorityFor(bool guest_thread, std::string_view name) {
   if (guest_thread) {
+    if (name.starts_with("Main XThread")) {
+      return 0x3A;
+    }
     return REX_SWITCH_PRIO_GUEST;
   }
   // set_name() stores the name with the handle appended ("Audio Worker (F8000014)"),
@@ -462,6 +465,10 @@ X_STATUS XThread::Create() {
 
   // Always retain when starting - the thread owns itself until exited.
   RetainHandle();
+
+  if (thread_name_.empty()) {
+    thread_name_ = fmt::format("XThread{:04X} ({:08X})", handle(), handle());
+  }
 
   rex::thread::Thread::CreationParameters params;
   params.stack_size = 16_MiB;  // Allocate a big host stack.

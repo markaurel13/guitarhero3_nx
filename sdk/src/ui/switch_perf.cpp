@@ -365,7 +365,8 @@ void ApplyExclusiveCore(FILE* f, const std::vector<size_t>& order) {
   if (!pinned) {
     for (size_t i : order) {
       const Slot& s = g_slots[i];
-      if (std::strncmp(s.name, "XThread", 7) != 0) continue;
+      if (s.handle.load() == envGetMainThreadHandle()) continue;
+      if (std::strstr(s.name, "XThread") == nullptr) continue;
       if (s.cpu < 5.0 && order.size() > 2) break;
       if (R_SUCCEEDED(svcSetThreadCoreMask(s.handle.load(), k, bit))) {
         pinned = s.handle.load();
@@ -382,7 +383,7 @@ void ApplyExclusiveCore(FILE* f, const std::vector<size_t>& order) {
   if (g_core_render.load(std::memory_order_relaxed) && !raised) {
     for (size_t i : order) {
       const Slot& s = g_slots[i];
-      if (s.handle.load() == pinned || std::strncmp(s.name, "XThread", 7) != 0) continue;
+      if (s.handle.load() == pinned || std::strstr(s.name, "XThread") == nullptr) continue;
       if (s.cpu < 35.0) break;
       if (R_SUCCEEDED(svcSetThreadPriority(s.handle.load(), 0x2B))) {
         raised = s.handle.load();
@@ -401,7 +402,7 @@ void ApplyExclusiveCore(FILE* f, const std::vector<size_t>& order) {
     // Light guest threads (audio, streaming: under 35 % of a core) may use the main thread's spare time on K,
     // which leaves cores 0-1 to the ring and render threads. Same priority as the main thread (0x3B): they
     // only run on K while it waits.
-    if (light && std::strncmp(g_slots[i].name, "XThread", 7) == 0 && g_slots[i].cpu < 35.0) {
+    if (light && std::strstr(g_slots[i].name, "XThread") != nullptr && g_slots[i].cpu < 35.0) {
       if (mask == 0x6 || mask == 0x5 || mask == 0x3) svcSetThreadCoreMask(h, -3, mask | bit);
       continue;
     }
@@ -1267,7 +1268,7 @@ void RexSwitchPerfExclusiveCore(int core) {
 u32 RexSwitchPerfGetPinnedThread(char* name_out, size_t name_max) {
   for (const auto& s : g_slots) {
     const u32 h = s.handle.load();
-    if (h) {
+    if (h && h != envGetMainThreadHandle()) {
       s32 pref = -1;
       u64 mask = 0;
       if (R_SUCCEEDED(svcGetThreadCoreMask(&pref, &mask, h))) {
