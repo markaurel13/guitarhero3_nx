@@ -37,13 +37,13 @@ REXCVAR_DEFINE_INT32(sa2_native_deferred_recording_naps, 64, "SA2 renderer",
     .range(0, 1000)
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
-REXCVAR_DEFINE_INT32(sa2_native_deferred_worker_core, -2, "SA2 renderer",
+REXCVAR_DEFINE_INT32(sa2_native_deferred_worker_core, -1, "SA2 renderer",
                      "Switch: the deferred-recording worker's core. -2 = only the process's default core (as before; the "
                      "worker's priority, the ring thread's, is above the game threads', so it preempts whatever runs "
                      "there); 0-2 = only that core; -1 = any of cores 0-2 (ideal core 2)")
     .range(-2, 2)
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
-REXCVAR_DEFINE_BOOL(sa2_deferred_native_fast, false, "SA2 renderer",
+REXCVAR_DEFINE_BOOL(sa2_deferred_native_fast, true, "SA2 renderer",
                     "Queue: the producer publishes commands in batches (sa2_deferred_native_batch) instead "
                     "of one seq_cst store + wake check per command, keeps its own copy of the worker's read index "
                     "and the worker stores it every 16 commands (less cache line ping-pong between the cores). "
@@ -54,7 +54,7 @@ REXCVAR_DEFINE_INT32(sa2_deferred_native_batch, 16, "SA2 renderer",
                      "published before the ring thread waits, drains or idles)")
     .range(1, 256)
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
-REXCVAR_DEFINE_BOOL(sa2_deferred_native_update, false, "SA2 renderer",
+REXCVAR_DEFINE_BOOL(sa2_deferred_native_update, true, "SA2 renderer",
                     "vkUpdateDescriptorSets is queued too (its write arrays deep-copied into the arena) instead of "
                     "draining the worker (~70 drains per frame, each a spin-yield of the ring thread). The update runs "
                     "on the worker at the same position of the command stream; every submit, destroy and reset still "

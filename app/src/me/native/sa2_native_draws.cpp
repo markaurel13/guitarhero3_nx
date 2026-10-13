@@ -186,18 +186,18 @@ REXCVAR_DEFINE_BOOL(sa2_native_framebuffers_forget_views, true, "SA2 renderer",
                     "framebuffers that use its view are destroyed too, so a reused handle cannot return a stale one. false = "
                     "previous behavior");
 
-REXCVAR_DEFINE_INT32(sa2_native_fingerprints_kb_frame, 6144, "SA2 renderer",
+REXCVAR_DEFINE_INT32(sa2_native_fingerprints_kb_frame, 1024, "SA2 renderer",
                      "Native renderer: KB of STABLE textures the ring may recheck at most "
                      "in one frame; those that do not fit wait 1-2 frames (at most 8 times "
                      "in a row). Spreads out rechecks that used to land in the same frame. "
                      "0 = no limit, as before");
 
-REXCVAR_DEFINE_INT32(sa2_native_texture_interval_max, 32, "SA2 renderer",
+REXCVAR_DEFINE_INT32(sa2_native_texture_interval_max, 128, "SA2 renderer",
                      "Longest interval, in frames, between guest-memory rechecks of a stable texture (default 32, "
                      "plus 0-7 jitter). A game that streams new texel data into an already-sampled address (texture "
                      "pool reuse) shows the old content for up to this many frames, which looks like texture "
                      "popping; lower it (8, 4) to trade ring CPU time for less popping. Must be a power of two.")
-    .range(2, 32);
+    .range(2, 256);
 
 REXCVAR_DEFINE_BOOL(sa2_native_adaptive_texture, true, "SA2 renderer",
                     "A texture whose guest memory was seen to change after it had looked stable (streaming into a "

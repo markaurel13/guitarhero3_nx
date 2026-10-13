@@ -288,7 +288,7 @@ SA2_ENHANCEMENT(g_rect_list_in_place, sa2_cpu_ring_rect_list_in_place, sa2::enh:
 // (0x3A) it preempts them instead. Scheduling only: same game, same frames. RISK: recompiled code spin-waits; if
 // that thread spins on something a 0x3B thread on the same core must do, that thread waits for a core change. Off
 // by default until a console A/B (configs/sa2_test_main_priority_on.toml) says it helps and nothing hangs.
-SA2_ENHANCEMENT(g_main_priority, sa2_cpu_main_thread_priority, sa2::enh::kCpu, false,
+SA2_ENHANCEMENT(g_main_priority, sa2_cpu_main_thread_priority, sa2::enh::kCpu, true,
                 "Main thread: the thread that draws runs one priority step above the other game threads (no 10 ms "
                 "time-slice waits behind them)");
 REXCVAR_DEFINE_INT32(sa2_main_thread_priority, 0x3A, "SA2 enhancements",
