@@ -4864,8 +4864,10 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
     // sa2-nx: depth + color 0 (Direct3D's Clear through the 4x alias). The color half is planned first, with no
     // side effect, and committed after the depth half: both or neither.
     ColorClearEDRAM4 color_clear;
+    const char* color_decline = nullptr;
     if (p.edram_overwrite_slots == 3) {
-      if (!PlanClearColor0EDRAM4(p, color_clear)) return no("also writes color (color 0 not redirectable)");
+      if (!PlanClearColor0EDRAM4(p, color_clear, color_decline))
+        return no(fmt::format("also writes color (color 0: {})", color_decline ? color_decline : "declined").c_str());
     } else if (p.edram_overwrite_slots != 1) {
       return no("also writes color");
     }
@@ -5203,33 +5205,46 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
     VkClearColorValue value{};
     Image* drawn = nullptr;
   };
-  bool PlanClearColor0EDRAM4(const SubmissionDraw& p, ColorClearEDRAM4& plan) {
-    if (!REXCVAR_GET(sa2_native_edram4_clear_color0) || !p.edram_overwrite_color0 || !p.edram_overwrite_rect)
-      return false;
+  bool PlanClearColor0EDRAM4(const SubmissionDraw& p, ColorClearEDRAM4& plan, const char*& decline_reason) {
+    if (!REXCVAR_GET(sa2_native_edram4_clear_color0)) { decline_reason = "cvar off"; return false; }
+    if (!p.edram_overwrite_color0) { decline_reason = "no color0 overwrite"; return false; }
+    if (!p.edram_overwrite_rect) { decline_reason = "no overwrite rect"; return false; }
     const uint32_t* r = p.registers;
     const uint32_t info = r[gr::XE_GPU_REG_RB_COLOR_INFO];
-    if (((info >> 16) & 0xF) != 0) return false;  // k_8_8_8_8 only (no gamma, no float formats)
+    const uint32_t format = (info >> 16) & 0xF;
+    if (format > 1) { decline_reason = "format > 1 (not 8_8_8_8)"; return false; }  // k_8_8_8_8 and k_8_8_8_8_GAMMA
     // The bytes the ROP stores: round to nearest of the clamped value. A value within float rounding of a tie
     // could round either way on the GPU: declined.
     for (uint32_t c = 0; c < 4; ++c) {
       const float v = (*p.edram_overwrite_color0)[c];
-      if (std::isnan(v)) return false;
+      if (std::isnan(v)) { decline_reason = "color NaN"; return false; }
       const double f = double(std::clamp(v, 0.0f, 1.0f)) * 255.0;
-      if (std::abs(f - std::floor(f) - 0.5) < 1.0 / 1024.0) return false;
+      if (std::abs(f - std::floor(f) - 0.5) < 1.0 / 1024.0) { decline_reason = "color rounding tie"; return false; }
       plan.value.float32[c] = float(std::lround(f)) / 255.0f;
     }
-    if (!Record()) return false;
-    Image* drawn = GetTarget(info & 0xFFF, 0, r[gr::XE_GPU_REG_RB_SURFACE_INFO] & 0x3FFF);
+    if (!Record()) { decline_reason = "Record() failed"; return false; }
+    Image* drawn = GetTarget(info & 0xFFF, format, r[gr::XE_GPU_REG_RB_SURFACE_INFO] & 0x3FFF);
     if (!drawn || drawn->edram_depth || drawn->edram_64bpp || drawn->guest_width || drawn->guest_height ||
-        drawn->raster_grid_x || drawn->format != VK_FORMAT_R8G8B8A8_UNORM) return false;
+        drawn->raster_grid_x || drawn->format != VK_FORMAT_R8G8B8A8_UNORM) {
+      decline_reason = !drawn ? "no drawn target" : "drawn flags not compatible";
+      return false;
+    }
     const auto& o = *p.edram_overwrite_rect;
     const uint32_t tw = 80u >> drawn->edram_msaa_x, th = 16u >> drawn->edram_msaa_y;
-    if (o[0] < 0 || o[1] < 0 || o[0] % tw || o[1] % th || o[2] % tw || o[3] % th || o[2] <= o[0] ||
-        o[3] <= o[1] || uint32_t(o[2]) > drawn->width || uint32_t(o[3]) > drawn->height) return false;
+    const bool aligned = !(o[0] % tw || o[1] % th || o[2] % tw || o[3] % th);
+    const bool partial_ok = REXCVAR_GET(sa2_native_edram4_partial_clear) && p.edram_bounds_rect &&
+        *p.edram_bounds_rect == o && o[2] > o[0] && o[3] > o[1];
+    if (o[0] < 0 || o[1] < 0 || (!aligned && !partial_ok) || o[2] <= o[0] || o[3] <= o[1] ||
+        uint32_t(o[2]) > drawn->width || uint32_t(o[3]) > drawn->height) {
+      decline_reason = "rect bounds or not tile-aligned";
+      return false;
+    }
     const uint32_t pitch_tiles = PitchTilesEDRAM(*drawn);
-    if (!pitch_tiles) return false;
-    for (uint32_t ty = uint32_t(o[1]) / th; ty < uint32_t(o[3]) / th; ++ty) {
-      for (uint32_t tx = uint32_t(o[0]) / tw; tx < uint32_t(o[2]) / tw;) {
+    if (!pitch_tiles) { decline_reason = "no pitch_tiles"; return false; }
+    const uint32_t tx_end = (uint32_t(o[2]) + tw - 1) / tw;
+    const uint32_t ty_end = (uint32_t(o[3]) + th - 1) / th;
+    for (uint32_t ty = uint32_t(o[1]) / th; ty < ty_end; ++ty) {
+      for (uint32_t tx = uint32_t(o[0]) / tw; tx < tx_end;) {
         const uint32_t local = ty * pitch_tiles + tx;
         const auto owner = owners_tiles_edram4_[(drawn->edram_base + local) & 2047u];
         Image* w = owner.image;
@@ -5240,13 +5255,16 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
         }
         Prepare(*w);
         if (!w->prepared || w->invalid_content || w->guest_width || w->guest_height ||
-            w->raster_grid_x || !SamplesSupported(*w)) return false;
+            w->raster_grid_x || !SamplesSupported(*w)) {
+          decline_reason = "owner target not prepared or valid";
+          return false;
+        }
         const uint32_t wp = PitchTilesEDRAM(*w);
         const uint32_t ww = 80u >> w->edram_msaa_x, wh = 16u >> w->edram_msaa_y;
-        if (!wp || w->width % ww) return false;
+        if (!wp || w->width % ww) { decline_reason = "owner pitch/tile mismatch"; return false; }
         const uint32_t first_tile_local = self_owner ? local : owner.tile_local;
         uint32_t count = 1;
-        while (tx + count < uint32_t(o[2]) / tw && (first_tile_local % wp) + count < wp) {
+        while (tx + count < tx_end && (first_tile_local % wp) + count < wp) {
           const auto next = owners_tiles_edram4_[(drawn->edram_base + local + count) & 2047u];
           if (self_owner) {
             const bool next_self = !next.image || next.image == drawn || next.image->image == drawn->image ||
@@ -5259,7 +5277,10 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
           ++count;
         }
         const uint32_t x = (first_tile_local % wp) * ww, y = (first_tile_local / wp) * wh, width = ww * count;
-        if (x >= w->width || y >= w->height || width > w->width - x || wh > w->height - y) return false;
+        if (x >= w->width || y >= w->height || width > w->width - x || wh > w->height - y) {
+          decline_reason = "run bounds exceed owner image";
+          return false;
+        }
         plan.runs.push_back({w, local, count, {{int32_t(x), int32_t(y)}, {width, wh}}});
         tx += count;
       }
