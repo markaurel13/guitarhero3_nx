@@ -53,10 +53,14 @@ class PackEntry : public Entry {
   uint64_t data_offset() const { return data_offset_; }
   PackDevice* pack() const { return pack_; }
 
+  std::shared_ptr<const std::vector<uint8_t>> GetOrLoadData();
+
  private:
   friend class PackDevice;
   PackDevice* pack_ = nullptr;
   uint64_t data_offset_ = 0;
+  std::mutex data_mutex_;
+  std::weak_ptr<const std::vector<uint8_t>> weak_data_;
 };
 
 class PackFile : public File {
@@ -74,6 +78,7 @@ class PackFile : public File {
 
  private:
   PackEntry* pack_entry_;
+  std::shared_ptr<const std::vector<uint8_t>> file_data_;
   // Small reads (<= half the window) are served from a window of the file, as asset_pack.c does per handle.
   std::mutex cache_mutex_;
   std::vector<uint8_t> cache_;

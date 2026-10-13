@@ -198,6 +198,27 @@ std::unique_ptr<PackStorage> PackStorage::Open(const std::filesystem::path& path
 PackEntry::PackEntry(Device* device, Entry* parent, const std::string_view path) : Entry(device, parent, path) {}
 PackEntry::~PackEntry() = default;
 
+std::shared_ptr<const std::vector<uint8_t>> PackEntry::GetOrLoadData() {
+  std::lock_guard<std::mutex> lock(data_mutex_);
+  if (auto sp = weak_data_.lock()) {
+    return sp;
+  }
+  const size_t s = size();
+  // Preload all audio streams, music, and files up to 96 MB completely into RAM
+  if (s == 0 || s > 96ull * 1024ull * 1024ull) {
+    return nullptr;
+  }
+  RecordWindowFill(s);
+  auto buf = std::make_shared<std::vector<uint8_t>>(s);
+  if (!pack()->storage()->ReadAt(data_offset(), buf->data(), s)) {
+    REXFS_ERROR("[pack] failed to preload {} ({} bytes) into RAM", path(), s);
+    return nullptr;
+  }
+  REXFS_INFO("[pack] cached entire file in RAM: {} ({:.2f} MB)", path(), s / (1024.0 * 1024.0));
+  weak_data_ = buf;
+  return buf;
+}
+
 X_STATUS PackEntry::Open(uint32_t desired_access, File** out_file) {
   if (desired_access & (FileAccess::kFileWriteData | FileAccess::kFileAppendData)) {
     REXFS_ERROR("Attempting to open {} for write access on the read-only asset pack", path());
@@ -225,6 +246,20 @@ X_STATUS PackFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offset, size_
     return X_STATUS_END_OF_FILE;
   }
   const size_t n = std::min(buffer.size(), size - byte_offset);
+
+  // If the file is eligible for full in-memory caching (<= 96 MB), serve directly from RAM
+  if (size <= 96ull * 1024ull * 1024ull) {
+    if (!file_data_) {
+      file_data_ = pack_entry_->GetOrLoadData();
+    }
+    if (file_data_ && byte_offset + n <= file_data_->size()) {
+      RecordWindowHit(n);
+      std::memcpy(buffer.data(), file_data_->data() + byte_offset, n);
+      *out_bytes_read = n;
+      return X_STATUS_SUCCESS;
+    }
+  }
+
   PackStorage* storage = pack_entry_->pack()->storage();
   const uint64_t base = pack_entry_->data_offset();
 
