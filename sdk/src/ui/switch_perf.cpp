@@ -1285,6 +1285,31 @@ u32 RexSwitchPerfGetPinnedThread(char* name_out, size_t name_max) {
   return 0;
 }
 
+size_t RexSwitchPerfGetTopThreads(char* out, size_t out_max) {
+  if (!out || out_max == 0) return 0;
+  out[0] = '\0';
+  std::vector<size_t> order;
+  for (size_t i = 0; i < kMaxThreads; ++i) {
+    if (g_slots[i].handle.load() && g_slots[i].cpu >= 0.5) {
+      order.push_back(i);
+    }
+  }
+  std::sort(order.begin(), order.end(), [](size_t a, size_t b) { return g_slots[a].cpu > g_slots[b].cpu; });
+  size_t written = 0;
+  for (size_t i : order) {
+    const Slot& s = g_slots[i];
+    s32 pref = -1;
+    u64 mask = 0;
+    svcGetThreadCoreMask(&pref, &mask, s.handle.load());
+    int n = snprintf(out + written, out_max - written,
+                     " [\"%s\" cpu:%.1f%% core:0x%x]",
+                     s.name[0] ? s.name : "unnamed", s.cpu, (unsigned int)mask);
+    if (n <= 0 || written + size_t(n) >= out_max) break;
+    written += size_t(n);
+  }
+  return written;
+}
+
 void RexSwitchPerfResolution(unsigned w, unsigned h) {
   g_resolution.store(((w & 0xFFFF) << 16) | (h & 0xFFFF), std::memory_order_relaxed);
 }
