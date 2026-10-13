@@ -95,6 +95,12 @@ sa2_vsync_relaxed = true
 anisotropic_override = 1
 occlusion_query_enable = false
 
+# I/O y Streaming de Audio (Elimina micro-tirones y congelamientos en la pista de notas)
+sa2_io_window_kb = 2048        # Ventana de lectura anticipada de 2 MB (permite requests de 128 KB de audio)
+sa2_io_windows_max = 16
+sa2_io_ranges_min_kb = 64      # Piso de cache reducido a 64 KB para almacenar bloques de 128 KB
+sa2_io_ranges_mb = 128         # Cap de cache en RAM elevado a 128 MB
+
 log_verbose = false
 log_level = "info"
 

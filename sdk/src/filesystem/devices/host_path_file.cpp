@@ -39,7 +39,7 @@
  * exactly on those 64 KB. The RAM ceiling goes down, not up: 16 windows x 256 KB = 4 MB, against
  * 128 x 64 KB = 8 MB.
  */
-REXCVAR_DEFINE_INT32(sa2_io_window_kb, 256, "Filesystem",
+REXCVAR_DEFINE_INT32(sa2_io_window_kb, 2048, "Filesystem",
                      "Read-ahead per file, in KB (0 = off). Read-only data only.");
 
 // How many windows can exist at once. A hard cap so that opening many files does not eat the RAM.
@@ -172,12 +172,12 @@ REXCVAR_DEFINE_INT32(sa2_io_cache_mb, 0, "Filesystem",
  * Memory: it comes from the host heap (1,024 MB), not from the GPU heap. With ~506 MB for the guest
  * and the thread stacks, 64 MB leaves margin; 128 would not in the pessimistic case.
  */
-REXCVAR_DEFINE_INT32(sa2_io_ranges_mb, 64, "Filesystem",
+REXCVAR_DEFINE_INT32(sa2_io_ranges_mb, 128, "Filesystem",
                      "Cache of reads by exact range, total cap in MB (0 = off). 64 = the measured "
                      "footprint of a session (56.6 MB) without evictions; more buys nothing.");
 
 // Floor, in KB. At 4 MB it left out everything that is reread during a race (0.14-2.0 MB).
-REXCVAR_DEFINE_INT32(sa2_io_ranges_min_kb, 256, "Filesystem",
+REXCVAR_DEFINE_INT32(sa2_io_ranges_min_kb, 64, "Filesystem",
                      "Only reads of this many KB or more are cached. 256 = the point where the simulation "
                      "stops gaining (with 128 evictions go up and hits go down).");
 
@@ -199,7 +199,7 @@ std::atomic<uint64_t> g_bytes_ram{0};
 std::atomic<int64_t> g_live_windows{0};
 
 // Above this it does not pay off: the request is already large and the window would only add an extra copy.
-constexpr size_t kSubmissionMaxFraction = 4;  // request <= window/4
+constexpr size_t kSubmissionMaxFraction = 2;  // request <= window/2
 
 /* The read cache (see sa2_io_cache_mb). */
 constexpr size_t kBlockCache = 256 * 1024;
