@@ -600,6 +600,19 @@ StatsWindow ReadStatsWindow() {
   return e;
 }
 
+void RecordWindowHit(size_t bytes) {
+  g_hits.fetch_add(1, std::memory_order_relaxed);
+  g_bytes_ram.fetch_add(bytes, std::memory_order_relaxed);
+}
+
+void RecordWindowFill(size_t /*bytes*/) {
+  g_filled.fetch_add(1, std::memory_order_relaxed);
+}
+
+void RecordWindowDirect(size_t /*bytes*/) {
+  g_direct.fetch_add(1, std::memory_order_relaxed);
+}
+
 HostPathFile::HostPathFile(uint32_t file_access, HostPathEntry* entry,
                            std::unique_ptr<rex::filesystem::FileHandle> file_handle)
     : File(file_access, entry), file_handle_(std::move(file_handle)) {

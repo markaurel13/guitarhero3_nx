@@ -39,6 +39,9 @@ struct StatsWindow {
   uint64_t live_windows = 0;
 };
 StatsWindow ReadStatsWindow();
+void RecordWindowHit(size_t bytes);
+void RecordWindowFill(size_t bytes);
+void RecordWindowDirect(size_t bytes);
 
 /*
  * Exact-range read cache. See sa2_io_ranges_mb in the .cpp.

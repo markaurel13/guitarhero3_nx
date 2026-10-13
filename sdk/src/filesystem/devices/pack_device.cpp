@@ -18,10 +18,14 @@
 #include <system_error>
 #include <unordered_map>
 
+#include <rex/cvar.h>
 #include <rex/filesystem.h>
+#include <rex/filesystem/devices/host_path_file.h>
 #include <rex/logging.h>
 #include <rex/math.h>
 #include <rex/string.h>
+
+REXCVAR_DECLARE(int32_t, sa2_io_window_kb);
 
 namespace rex::filesystem {
 
@@ -223,23 +227,33 @@ X_STATUS PackFile::ReadSync(std::span<uint8_t> buffer, size_t byte_offset, size_
   const size_t n = std::min(buffer.size(), size - byte_offset);
   PackStorage* storage = pack_entry_->pack()->storage();
   const uint64_t base = pack_entry_->data_offset();
-  if (n > kCacheSize / 2) {
+
+  const int32_t window_kb = REXCVAR_GET(sa2_io_window_kb);
+  const size_t window_size = window_kb > 0 ? size_t(window_kb) * 1024u : 2048u * 1024u;
+
+  // Requests larger than window_size / 2 are big bulk reads; read them directly without polluting the window
+  if (n > window_size / 2) {
+    RecordWindowDirect(n);
     if (!storage->ReadAt(base + byte_offset, buffer.data(), n)) return X_STATUS_UNSUCCESSFUL;
     *out_bytes_read = n;
     return X_STATUS_SUCCESS;
   }
-  // asset_pack.c asset_pack_read_fd: small reads come out of a 64 KB window of this file, refilled from the read
-  // position on a miss.
+
+  // Small and streaming reads (including 128 KB audio streams) are served from a window of the file
   std::lock_guard<std::mutex> lock(cache_mutex_);
   if (byte_offset < cache_offset_ || byte_offset + n > cache_offset_ + cache_size_) {
-    cache_.resize(kCacheSize);
+    RecordWindowFill(window_size);
+    cache_size_ = std::min(window_size, size - byte_offset);
+    cache_.resize(cache_size_);
     cache_offset_ = byte_offset;
-    cache_size_ = std::min(kCacheSize, size - byte_offset);
     if (!storage->ReadAt(base + byte_offset, cache_.data(), cache_size_)) {
       cache_size_ = 0;
       return X_STATUS_UNSUCCESSFUL;
     }
+  } else {
+    RecordWindowHit(n);
   }
+
   std::memcpy(buffer.data(), cache_.data() + (byte_offset - cache_offset_), n);
   *out_bytes_read = n;
   return X_STATUS_SUCCESS;

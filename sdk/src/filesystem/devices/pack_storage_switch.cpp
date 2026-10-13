@@ -31,14 +31,14 @@ class PackStorageSwitch final : public PackStorage {
   bool ReadAt(uint64_t offset, void* buffer, size_t size) override {
     auto* out = static_cast<uint8_t*>(buffer);
     while (size) {
-      const size_t piece = std::min<size_t>(size, 1 << 20);
+      const size_t piece = std::min<size_t>(size, 2 << 20);
       u64 read = 0;
       Result rc = fsFileRead(&file_, s64(offset), out, piece, FsReadOption_None, &read);
       if (R_FAILED(rc)) {
         // The destination is guest memory, read into directly through IPC. Should the file system ever refuse a
         // range of it as a transfer buffer (memory mapped another way), read the piece into host memory and copy.
         static thread_local std::unique_ptr<uint8_t[]> bounce;
-        if (!bounce) bounce = std::make_unique<uint8_t[]>(1 << 20);
+        if (!bounce) bounce = std::make_unique<uint8_t[]>(2 << 20);
         const Result direct = rc;
         rc = fsFileRead(&file_, s64(offset), bounce.get(), piece, FsReadOption_None, &read);
         if (R_SUCCEEDED(rc)) {
