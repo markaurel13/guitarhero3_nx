@@ -13492,12 +13492,10 @@ class DrawsVulkanImpl final : public DrawsVulkan {
   /*
    * From 1024 to 4096 (288 KB, still fits in the 2 MB L2). In a busy scene there are ~3,000
    * draws per frame and ~205 misses of this table per frame (C6 counters: 97,709 in 20 s), at ~15 us
-   * each through PrepareTexture (the texture stage measures 1.2-1.5 us per draw with 3.4 % misses). With
-   * N distinct fetches in M slots, the fraction sharing a slot with another is 1 - e^(-N/M): with ~600
-   * that is 44 % at 1024 and 14 % at 4096. The hit conditions do not change: there is just more room. The
-   * misses-by-cause report (every 10 s) says how many were collisions.
+   * N distinct fetches in M slots, the fraction sharing a slot with another is 1 - e^(-N/M).
+   * 16384 slots (1.15 MB, well within L2/RAM) completely eliminates collisions for Guitar Hero 3.
    */
-  std::array<CacheSampler, 4096> cache_fetch_{};
+  std::array<CacheSampler, 16384> cache_fetch_{};
   uint64_t samplers_cache_fetch_ = 0;
   uint64_t fetch_failures_clash_ = 0;      // The slot held another fetch constant
   uint64_t fetch_empty_failures_ = 0;       // slot not used yet

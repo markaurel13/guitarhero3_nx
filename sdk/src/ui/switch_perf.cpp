@@ -1264,6 +1264,26 @@ void RexSwitchPerfExclusiveCore(int core) {
   g_exclusive_core.store(core % 10, std::memory_order_relaxed);
 }
 
+u32 RexSwitchPerfGetPinnedThread(char* name_out, size_t name_max) {
+  for (const auto& s : g_slots) {
+    const u32 h = s.handle.load();
+    if (h) {
+      s32 pref = -1;
+      u64 mask = 0;
+      if (R_SUCCEEDED(svcGetThreadCoreMask(&pref, &mask, h))) {
+        if (mask == 1) {
+          if (name_out && name_max > 0) {
+            std::strncpy(name_out, s.name, name_max - 1);
+            name_out[name_max - 1] = '\0';
+          }
+          return h;
+        }
+      }
+    }
+  }
+  return 0;
+}
+
 void RexSwitchPerfResolution(unsigned w, unsigned h) {
   g_resolution.store(((w & 0xFFFF) << 16) | (h & 0xFFFF), std::memory_order_relaxed);
 }

@@ -66,6 +66,7 @@ SA2_ENHANCEMENT(g_guest_cas_no_barrier, sa2_cpu_guest_cas_no_barrier, sa2::enh::
                 "back at run time");
 #if defined(__aarch64__)
 extern "C" unsigned char g_rex_atomic_legacy_barrier;  // sdk/src/core/atomic_posix.cpp
+extern "C" uint32_t RexSwitchPerfGetPinnedThread(char* name_out, size_t name_max);
 #endif
 
 #if !REX_PLATFORM_SWITCH
@@ -257,6 +258,13 @@ void StartReport() {
         if (e->amount_unit) line += fmt::format(" ({} {})", da, e->amount_unit);
       }
       if (!line.empty()) REXLOG_INFO("[enh] uses in the last {} s:{}", seconds, line);
+#if REX_PLATFORM_SWITCH
+      char pinned_name[32]{};
+      uint32_t pinned_h = RexSwitchPerfGetPinnedThread(pinned_name, sizeof(pinned_name));
+      if (pinned_h) {
+        REXLOG_INFO("[perf] Core 0 exclusive: pinned guest thread \"{}\" (handle {:#x})", pinned_name, pinned_h);
+      }
+#endif
       const uint64_t checks = g_verify_checks.load(std::memory_order_relaxed);
       const uint64_t differences = g_verify_differences.load(std::memory_order_relaxed);
       if (checks || differences)
