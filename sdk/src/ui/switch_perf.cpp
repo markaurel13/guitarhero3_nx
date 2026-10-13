@@ -360,13 +360,23 @@ std::vector<Count> Histogram(std::vector<u64>& addrs) {
 void ApplyExclusiveCore(FILE* f, const std::vector<size_t>& order) {
   static u32 pinned = 0;
   const int k = g_exclusive_core.load(std::memory_order_relaxed);
-  if (k < 0 || k > 2) return;
+  if (k < 0 || k > 2) {
+    if (pinned) {
+      pinned = 0;
+      for (size_t i = 0; i < kMaxThreads; ++i) {
+        const u32 h = g_slots[i].handle.load();
+        if (h) svcSetThreadCoreMask(h, -1, 0x7);
+      }
+    }
+    return;
+  }
   const u64 bit = 1ull << k;
   if (!pinned) {
     for (size_t i : order) {
       const Slot& s = g_slots[i];
       if (s.handle.load() == envGetMainThreadHandle()) continue;
-      if (std::strstr(s.name, "XThread") == nullptr) continue;
+      if (std::strstr(s.name, "XT") == nullptr && std::strstr(s.name, "Main") == nullptr &&
+          std::strstr(s.name, "XThread") == nullptr) continue;
       if (s.cpu < 5.0 && order.size() > 2) break;
       if (R_SUCCEEDED(svcSetThreadCoreMask(s.handle.load(), k, bit))) {
         pinned = s.handle.load();
@@ -383,7 +393,9 @@ void ApplyExclusiveCore(FILE* f, const std::vector<size_t>& order) {
   if (g_core_render.load(std::memory_order_relaxed) && !raised) {
     for (size_t i : order) {
       const Slot& s = g_slots[i];
-      if (s.handle.load() == pinned || std::strstr(s.name, "XThread") == nullptr) continue;
+      if (s.handle.load() == pinned ||
+          (std::strstr(s.name, "XT") == nullptr && std::strstr(s.name, "Main") == nullptr &&
+           std::strstr(s.name, "XThread") == nullptr)) continue;
       if (s.cpu < 35.0) break;
       if (R_SUCCEEDED(svcSetThreadPriority(s.handle.load(), 0x2B))) {
         raised = s.handle.load();
@@ -402,7 +414,9 @@ void ApplyExclusiveCore(FILE* f, const std::vector<size_t>& order) {
     // Light guest threads (audio, streaming: under 35 % of a core) may use the main thread's spare time on K,
     // which leaves cores 0-1 to the ring and render threads. Same priority as the main thread (0x3B): they
     // only run on K while it waits.
-    if (light && std::strstr(g_slots[i].name, "XThread") != nullptr && g_slots[i].cpu < 35.0) {
+    if (light &&
+        (std::strstr(g_slots[i].name, "XT") != nullptr || std::strstr(g_slots[i].name, "Main") != nullptr ||
+         std::strstr(g_slots[i].name, "XThread") != nullptr) && g_slots[i].cpu < 35.0) {
       if (mask == 0x6 || mask == 0x5 || mask == 0x3) svcSetThreadCoreMask(h, -3, mask | bit);
       continue;
     }
@@ -974,8 +988,8 @@ void ProfilerMain(void*) {
     const std::string v = rex::cvar::GetFlagByName("switch_exclusive_core");
     if (!v.empty() && v != "-1") {
       RexSwitchPerfExclusiveCore(std::atoi(v.c_str()));
-    } else if (v.empty()) {
-      RexSwitchPerfExclusiveCore(0);
+    } else {
+      RexSwitchPerfExclusiveCore(-1);
     }
   }
 
@@ -983,14 +997,6 @@ void ProfilerMain(void*) {
   while (armGetSystemTick() - start < warmup) {
     __real_svcSleepThread(kPassiveIntervalNs);
     overlay.Step(armGetSystemTick(), tick_freq, false);
-    if (g_exclusive_core.load(std::memory_order_relaxed) >= 0) {
-      std::vector<size_t> order;
-      for (size_t i = 0; i < kMaxThreads; ++i) {
-        if (g_slots[i].handle.load()) order.push_back(i);
-      }
-      std::sort(order.begin(), order.end(), [](size_t a, size_t b) { return g_slots[a].cpu > g_slots[b].cpu; });
-      ApplyExclusiveCore(nullptr, order);
-    }
   }
 
   // Invasive sampling is only enabled explicitly, for diagnostics.
@@ -1095,14 +1101,20 @@ void ProfilerMain(void*) {
     const u64 now = armGetSystemTick();
     // Once per second, FPS and resolution for the overlay (the profile report runs every 10 s).
     overlay.Step(now, tick_freq, true);
-    if (g_exclusive_core.load(std::memory_order_relaxed) >= 0) {
-      std::vector<size_t> order;
-      for (size_t i = 0; i < kMaxThreads; ++i) {
-        if (g_slots[i].handle.load()) order.push_back(i);
+    {
+      const std::string v = rex::cvar::GetFlagByName("switch_exclusive_core");
+      if (!v.empty() && v != "-1") {
+        RexSwitchPerfExclusiveCore(std::atoi(v.c_str()));
+      } else {
+        RexSwitchPerfExclusiveCore(-1);
       }
-      std::sort(order.begin(), order.end(), [](size_t a, size_t b) { return g_slots[a].cpu > g_slots[b].cpu; });
-      ApplyExclusiveCore(nullptr, order);
     }
+    std::vector<size_t> order;
+    for (size_t i = 0; i < kMaxThreads; ++i) {
+      if (g_slots[i].handle.load()) order.push_back(i);
+    }
+    std::sort(order.begin(), order.end(), [](size_t a, size_t b) { return g_slots[a].cpu > g_slots[b].cpu; });
+    ApplyExclusiveCore(nullptr, order);
     if (report && now - report_start >= kReportSeconds * tick_freq) {
       Report(now - report_start, tick_freq, counters_last, kModes[mode_index].name);
       if (g_ab_active.load(std::memory_order_relaxed)) {

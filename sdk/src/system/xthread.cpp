@@ -181,9 +181,23 @@ void XThread::set_last_error(uint32_t error_code) {
 void XThread::set_name(const std::string_view name) {
   std::lock_guard<std::mutex> lock(thread_lock_);
   if (creation_params_.start_address != 0) {
-    thread_name_ = fmt::format("{}_pc{:08X}", name, creation_params_.start_address);
+    if (name.starts_with("Main")) {
+      thread_name_ = fmt::format("Main_{:08X}", creation_params_.start_address);
+    } else if (name.starts_with("Audio")) {
+      thread_name_ = fmt::format("Audio_{:08X}", creation_params_.start_address);
+    } else if (name.starts_with("XMA")) {
+      thread_name_ = fmt::format("XMA_{:08X}", creation_params_.start_address);
+    } else {
+      thread_name_ = fmt::format("XT{:04X}_{:08X}", handle() & 0xFFFF, creation_params_.start_address);
+    }
   } else {
-    thread_name_ = fmt::format("{} ({:08X})", name, handle());
+    if (name.starts_with("Audio")) {
+      thread_name_ = fmt::format("Audio_{:04X}", handle() & 0xFFFF);
+    } else if (name.starts_with("XMA")) {
+      thread_name_ = fmt::format("XMA_{:04X}", handle() & 0xFFFF);
+    } else {
+      thread_name_ = fmt::format("{:.9s}_{:04X}", name, handle() & 0xFFFF);
+    }
   }
 
   if (thread_) {
@@ -355,7 +369,8 @@ int SwitchPriorityFor(bool guest_thread, std::string_view name) {
   // so the prefix is compared. With an exact comparison the Audio Worker and the
   // XMA Decoder stayed at the presentation priority (0x2C) instead of the audio one
   // (0x2B), as rex_profile.log showed on the console.
-  if (name.starts_with("Audio Worker") || name.starts_with("XMA Decoder")) {
+  if (name.starts_with("Audio Worker") || name.starts_with("XMA Decoder") ||
+      name.starts_with("Audio") || name.starts_with("XMA")) {
     return REX_SWITCH_PRIO_AUDIO;
   }
   return REX_SWITCH_PRIO_PRESENT;  // GPU Commands, GPU VSync, Kernel Dispatch
@@ -469,9 +484,9 @@ X_STATUS XThread::Create() {
 
   if (thread_name_.empty()) {
     if (main_thread_) {
-      thread_name_ = fmt::format("Main XThread_pc{:08X}", creation_params_.start_address);
+      thread_name_ = fmt::format("Main_{:08X}", creation_params_.start_address);
     } else {
-      thread_name_ = fmt::format("XThread{:04X}_pc{:08X}", handle() & 0xFFFF, creation_params_.start_address);
+      thread_name_ = fmt::format("XT{:04X}_{:08X}", handle() & 0xFFFF, creation_params_.start_address);
     }
   }
 

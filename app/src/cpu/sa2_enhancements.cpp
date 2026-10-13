@@ -34,7 +34,7 @@ REXCVAR_DEFINE_BOOL(switch_profile_stacks, false, "SA2 enhancements",
 REXCVAR_DEFINE_BOOL(switch_profile_report, true, "SA2 enhancements",
                     "Switch: the profiler writes its 10-second report to logs/rex/rex_profile.log (false = no file)")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
-REXCVAR_DEFINE_INT32(switch_exclusive_core, 0, "SA2 enhancements",
+REXCVAR_DEFINE_INT32(switch_exclusive_core, -1, "SA2 enhancements",
                      "Switch: exclusive CPU core for hottest guest thread (-1=off, 0..2, 10+K=light guest allowed)")
     .range(-1, 32)
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
