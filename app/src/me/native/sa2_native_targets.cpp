@@ -4950,9 +4950,10 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       return false;
     }
     const uint32_t pitch_tiles = PitchTilesEDRAM(*drawn);
-    // Depth 0 is the all-zero 24-bit field in both D24S8 and D24FS8 (and 0 in every host encoding): another
+    // Depth 0 and 1 are exact in both D24S8 and D24FS8 (and 0/1 in every host encoding): another
     // depth encoding's owner can take the clear as is.
-    const bool zero_depth = *p.edram_overwrite_depth == 0.0f && REXCVAR_GET(sa2_native_edram4_clear_zero);
+    const bool zero_depth = (*p.edram_overwrite_depth == 0.0f || *p.edram_overwrite_depth == 1.0f) &&
+                            REXCVAR_GET(sa2_native_edram4_clear_zero);
     struct Region {
       Image* owner;
       uint32_t first_local, owner_local, count;
@@ -5232,20 +5233,32 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
         const uint32_t local = ty * pitch_tiles + tx;
         const auto owner = owners_tiles_edram4_[(drawn->edram_base + local) & 2047u];
         Image* w = owner.image;
-        if (!w || w == drawn || w->image == drawn->image || w->edram_depth || w->edram_64bpp ||
-            w->format != VK_FORMAT_R8G8B8A8_UNORM || w->edram_format != 0 || !w->prepared || w->invalid_content ||
-            w->guest_width || w->guest_height || w->raster_grid_x ||
-            !SamplesSupported(*w)) return false;
+        const bool self_owner = !w || w == drawn || w->image == drawn->image || w->edram_depth ||
+                                w->edram_64bpp || w->format != VK_FORMAT_R8G8B8A8_UNORM;
+        if (self_owner) {
+          w = drawn;
+        }
+        Prepare(*w);
+        if (!w->prepared || w->invalid_content || w->guest_width || w->guest_height ||
+            w->raster_grid_x || !SamplesSupported(*w)) return false;
         const uint32_t wp = PitchTilesEDRAM(*w);
         const uint32_t ww = 80u >> w->edram_msaa_x, wh = 16u >> w->edram_msaa_y;
         if (!wp || w->width % ww) return false;
+        const uint32_t first_tile_local = self_owner ? local : owner.tile_local;
         uint32_t count = 1;
-        while (tx + count < uint32_t(o[2]) / tw && (owner.tile_local % wp) + count < wp) {
+        while (tx + count < uint32_t(o[2]) / tw && (first_tile_local % wp) + count < wp) {
           const auto next = owners_tiles_edram4_[(drawn->edram_base + local + count) & 2047u];
-          if (next.image != w || next.tile_local != owner.tile_local + count) break;
+          if (self_owner) {
+            const bool next_self = !next.image || next.image == drawn || next.image->image == drawn->image ||
+                                   next.image->edram_depth || next.image->edram_64bpp ||
+                                   next.image->format != VK_FORMAT_R8G8B8A8_UNORM;
+            if (!next_self) break;
+          } else {
+            if (next.image != w || next.tile_local != owner.tile_local + count) break;
+          }
           ++count;
         }
-        const uint32_t x = (owner.tile_local % wp) * ww, y = (owner.tile_local / wp) * wh, width = ww * count;
+        const uint32_t x = (first_tile_local % wp) * ww, y = (first_tile_local / wp) * wh, width = ww * count;
         if (x >= w->width || y >= w->height || width > w->width - x || wh > w->height - y) return false;
         plan.runs.push_back({w, local, count, {{int32_t(x), int32_t(y)}, {width, wh}}});
         tx += count;
@@ -5282,8 +5295,16 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       if (!draws_->ClearColorInPass(commands_work_, *a.w, plan.value, a.rect)) return false;
     BarrierClearEDRAM4();
     for (const auto& run : plan.runs) {
-      for (uint32_t i = 0; i < run.count; ++i)
-        owners_tiles_edram4_[(plan.drawn->edram_base + run.first_local + i) & 2047u].version = ++edram4_version_;
+      for (uint32_t i = 0; i < run.count; ++i) {
+        const uint32_t physical = (plan.drawn->edram_base + run.first_local + i) & 2047u;
+        auto& d = owners_tiles_edram4_[physical];
+        if (d.image != run.owner) {
+          d = {run.owner, uint16_t((run.first_local + i) & 2047u), 0};
+          ++edram4_epoch_;
+        }
+        d.version = ++edram4_version_;
+        NoteSynchronizedEDRAM4(*run.owner, physical, d.version);
+      }
       edram4_redirected_color0_tiles_ += run.count;
     }
     edram4_redirected_color0_areas_ += areas.size();
