@@ -12746,7 +12746,11 @@ loc_82384E54:
 	ctx.lr = 0x82384E5C;
 	sub_82384668(ctx, base);
 	// li r4,0
+#if defined(__SWITCH__)
+	ctx.r4.s64 = 1;
+#else
 	ctx.r4.s64 = 0;
+#endif
 	// lwz r3,-6472(r29)
 	ctx.r3.u64 = REX_LOAD_U32(ctx.r29.u32 + -6472);
 	// bl 0x82137e18

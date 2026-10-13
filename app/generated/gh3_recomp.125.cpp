@@ -25135,7 +25135,14 @@ loc_826E1FAC:
 	// cmplwi cr6,r3,0
 	ctx.cr6.compare<uint32_t>(ctx.r3.u32, 0, ctx.xer);
 	// beq cr6,0x826e1fbc
+#if defined(__SWITCH__)
+	if (ctx.cr6.eq) {
+		rex::thread::Sleep(std::chrono::microseconds(500));
+		goto loc_826E1FBC;
+	}
+#else
 	if (ctx.cr6.eq) goto loc_826E1FBC;
+#endif
 	// bl 0x826e4748
 	ctx.lr = 0x826E1FBC;
 	sub_826E4748(ctx, base);

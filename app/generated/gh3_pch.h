@@ -28,6 +28,7 @@
 #include <rex/perf/counter.h>
 #include <rex/thread/mutex.h>
 #include <rex/system/mmio_handler.h>
+#include <rex/thread.h>
 
 #include <atomic>
 #include <cassert>

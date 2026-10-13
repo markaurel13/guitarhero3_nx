@@ -373,7 +373,10 @@ void RexSwitchDescribeThreadFailure(size_t stack_size, char* out, size_t out_len
 }
 
 void RexSwitchYield(void) {
-  svcSleepThread(0);
+  // svcSleepThread(0) only yields to threads of the same priority on the same core.
+  // If no same-priority thread is ready, it immediately returns in 0 ns, causing 100% spinlocks.
+  // A 50 us micro-sleep deschedules the thread and gives lower-priority threads (render, ring) a turn.
+  svcSleepThread(50000);
 }
 
 }  // extern "C"
