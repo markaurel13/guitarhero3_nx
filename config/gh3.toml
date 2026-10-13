@@ -31,8 +31,8 @@
 # inicializa e o jogo rebenta na inicializacao grafica.
 # Renderizador Nativo Vulkan Directo (Fase 2 - 60 FPS sin emulacion de CPU)
 sa2_renderer_native = true
-sa2_shaders_index = true
-sa2_render_height_handheld = 720
+# Escala de render: 540p en modo portatil (960x540 escalado por Vulkan, +70% rendimiento GPU)
+sa2_render_height_handheld = 540
 sa2_render_height_docked = 720
 sa2_gpu_boost = true
 sa2_shader_misses = "shader_misses"

@@ -1804,8 +1804,17 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
         copy.srcOffset = {x0, y0, 0};
         copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         copy.dstOffset = {int32_t(dx), int32_t(dy), 0};
-        copy.extent = {width, height, 1};
-        if (MakeAlias(previous_resolve, *target_render, *resolved, base_resolved, x0, y0, dx, dy, width, height)) {
+        const bool is_tiny_bloom_mip = (width <= 128 && height <= 256) &&
+                                       !multisampled &&
+                                       (resolved->reads == 0 && resolved->reads_total == 0) &&
+                                       presented_ > 30;
+        if (is_tiny_bloom_mip) {
+          ++copies_;
+          ++tiny_bloom_mips_skipped_;
+          resolved->image.prepared = true;
+          ResolvedWritten(base_resolved, uint64_t(width) * height);
+          ResolvedRead(reg, *resolved, x0, y0, dx, dy, width, height);
+        } else if (MakeAlias(previous_resolve, *target_render, *resolved, base_resolved, x0, y0, dx, dy, width, height)) {
           ++copies_;  // a resolve like any other for the reports (the alias report counts how many were not copied)
         } else {
         BeforeResolvedWrite(base_resolved, dx, dy, width, height);  // sa2_gpu_resolve_alias (covers the rectangle)
@@ -10001,10 +10010,16 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
                   "CPU waiting for GPU fence: {:.2f} ms/frame ({:.1f} % of CPU render time is IDLE WAITING FOR GPU) | "
                   "real GPU time: {:.2f} ms/frame",
                   frames, avg_cpu_rec, avg_cpu_wait, pct_waiting, avg_gpu_ms);
+      if (tiny_bloom_mips_skipped_ - report_tiny_bloom_skipped_) {
+        REXLOG_INFO("[native] skipped {} unread tiny bloom mip resolves in this window ({:.1f} resolves/frame)",
+                    tiny_bloom_mips_skipped_ - report_tiny_bloom_skipped_,
+                    double(tiny_bloom_mips_skipped_ - report_tiny_bloom_skipped_) / double(frames));
+      }
     }
     report_presented_ = presented_;
     report_ns_record_ = ns_record_;
     report_gpu_ns_ = gpu_ns_;
+    report_tiny_bloom_skipped_ = tiny_bloom_mips_skipped_;
     report_sends_ = 0;
     report_waits_gpu_ = waits_gpu_;
     report_ns_waits_gpu_ = ns_waits_gpu_;
@@ -10012,6 +10027,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
   uint64_t report_sends_ = 0, report_full_sends_ = 0, report_ns_full_sends_ = 0;
   uint64_t report_waits_gpu_ = 0, report_ns_waits_gpu_ = 0;
   uint64_t report_presented_ = 0, report_ns_record_ = 0, report_gpu_ns_ = 0;
+  uint64_t tiny_bloom_mips_skipped_ = 0, report_tiny_bloom_skipped_ = 0;
 
   void WaitGpu() {
     if (recording_) {
