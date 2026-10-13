@@ -1,0 +1,31 @@
+# Binarios, compilación y empaquetado
+out/
+build/
+*.nro
+*.nacp
+*.elf
+*.o
+*.obj
+*.ninja*
+.ninja_*
+
+# Archivos de juego y ROMs pesadas (superan el límite de 100MB de GitHub)
+*.iso
+*.ISO
+*.nxpack
+*.nxidx
+*.zip
+*.bik*
+*.pak*
+*.fsb*
+assets/game_root/
+extracted/
+cache/
+run/
+
+# Logs y temporales
+*.log
+*.tmp
+.cache/
+.vscode/
+.idea/

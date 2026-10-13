@@ -1,0 +1,15 @@
+# Guitar Hero III: Legends of Rock (USA, Rev 1) - XGD2
+# Static Recompilation Manifest for Nintendo Switch (NX)
+
+[project]
+name = "gh3"
+sdk_version = "0.10.0"
+
+[entrypoint]
+file_path = "extracted/default.xex"
+out_directory_path = "app/generated"
+
+includes = [
+  "config/gh3_functions.toml",
+  "config/gh3_orphans_scan.toml",
+]

@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: vulkan
+Description: Mesa Vulkan static archive for Horizon
+Version: 26.2.4
+Requires.private: libelf, expat, zlib, libzstd
+Libs: -lvulkan
+Libs.private: -lnx -lm -lstdc++
+Cflags: -I${includedir}
