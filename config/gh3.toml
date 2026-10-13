@@ -61,7 +61,6 @@ sa2_native_conversion_frag = true
 sa2_native_force_1x_msaa = true
 sa2_native_edram4_clear_color0 = true
 sa2_native_zcull_1x_depth = true
-sa2_native_skip_unread_resolves = true
 sa2_native_batch_resolve_barriers = true
 sa2_gpu_marks_categories = false
 sa2_native_reads_each = 8
