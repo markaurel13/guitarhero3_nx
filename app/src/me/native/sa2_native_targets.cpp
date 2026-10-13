@@ -161,6 +161,10 @@ REXCVAR_DEFINE_BOOL(sa2_native_zcull_1x_depth, false, "SA2",
 REXCVAR_DEFINE_BOOL(sa2_native_edram4_clear_color0, true, "SA2",
                     "EDRAM mode 4: a depth + color 0 clear drawn through a 4x alias (Direct3D's Clear) is cleared in "
                     "the 1x owners of both instead of drawn and transferred 4x -> 1x (same bytes; false = as before)");
+REXCVAR_DEFINE_BOOL(sa2_native_skip_unread_resolves, true, "SA2",
+                    "Skip resolving EDRAM into scratch textures that have never been read or presented (Candidate 5)");
+REXCVAR_DEFINE_BOOL(sa2_native_batch_resolve_barriers, true, "SA2",
+                    "Batch barriers around consecutive resolves to avoid redundant GPU pipeline flushes (Candidate 4)");
 REXCVAR_DEFINE_BOOL(banjo_native_edram4_skip_unsupported, true, "Nuts&Bolts/Graphics",
                     "Native renderer: when the previous content of EDRAM tiles cannot be converted for a draw's target "
                     "(e.g. 2x MSAA <-> 1x), draw anyway over the target's own content instead of dropping the draw");
@@ -616,6 +620,8 @@ struct Resolved {
   // map because ResolvedTexture is on the hot path (one call per texture and draw, ~8,000 per frame) and the
   // lookup of the resolved texture is done anyway.
   uint64_t reads = 0;
+  uint64_t reads_total = 0;
+  uint64_t created_frame = 0;
   uint64_t revision = 0;
   // sa2_gpu_resolve_alias: its bytes are still in another texture (ContextTargets::aliases_).
   bool alias_pending = false;
@@ -1801,8 +1807,26 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
         copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         copy.dstOffset = {int32_t(dx), int32_t(dy), 0};
         copy.extent = {width, height, 1};
-        // sa2_gpu_resolve_alias: the same bytes as the previous resolve's texture, which still holds them.
-        if (MakeAlias(previous_resolve, *target_render, *resolved, base_resolved, x0, y0, dx, dy, width, height)) {
+        const int32_t texels_read = REXCVAR_GET(sa2_native_resolved_read_texels);
+        const bool can_readback = uint64_t(width) * height <= uint64_t(std::max<int32_t>(texels_read, 0));
+        static const bool skip_unread = REXCVAR_GET(sa2_native_skip_unread_resolves);
+        const bool is_explicit_skip = skip_unread && !multisampled && !can_readback &&
+            (base_resolved == 0x0C7D0000 || base_resolved == 0x0CB68000);
+        const bool is_unread_candidate = skip_unread && !multisampled && !can_readback &&
+            presented_ > resolved->created_frame + 30 &&
+            resolved->reads_total == 0 &&
+            !presented_fronts_.count(base_resolved);
+        if (is_unread_candidate || is_explicit_skip) {
+          ++copies_;
+          ++unread_resolves_skipped_;
+          resolved->image.prepared = true;
+          ResolvedWritten(base_resolved, uint64_t(width) * height);
+          ResolvedRead(reg, *resolved, x0, y0, dx, dy, width, height);
+          if (logged_skipped_addresses_.insert(base_resolved).second) {
+            REXLOG_INFO("[native] Candidate 5: skipping unread scratch resolve {:08X} {}x{} (reads_total=0, not presented)",
+                        base_resolved, width, height);
+          }
+        } else if (MakeAlias(previous_resolve, *target_render, *resolved, base_resolved, x0, y0, dx, dy, width, height)) {
           ++copies_;  // a resolve like any other for the reports (the alias report counts how many were not copied)
         } else {
         BeforeResolvedWrite(base_resolved, dx, dy, width, height);  // sa2_gpu_resolve_alias (covers the rectangle)
@@ -1814,6 +1838,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
         if (multisampled || !PostponeCopyFront(base_resolved, *target_render, *resolved, copy)) {
           // sa2_gpu_resolve_draw: on the 3D engine when it applies.
           if (multisampled) {
+            EndCopyBatch();
             // sa2_msaa: the samples averaged into the single-sample texture (the anti-aliasing).
             const VkImageCopy host_copy = HostCopy(*target_render, resolved->image, copy);
             VkImageResolve resolve{};
@@ -1830,10 +1855,20 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
             sa2::render::NoteMsaaUse();
           } else if (!ResolveColorFrag(*target_render, resolved->image, x0, y0, dx, dy, width, height)) {
             const VkImageCopy host_copy = HostCopy(*target_render, resolved->image, copy);
-            BarrierBeforeCopyResolve();
-            copy_image_(commands_work_, target_render->image, VK_IMAGE_LAYOUT_GENERAL,
-                           resolved->image.image, VK_IMAGE_LAYOUT_GENERAL, 1, &host_copy);
-            BarrierAfterCopyResolve();
+            if (REXCVAR_GET(sa2_native_batch_resolve_barriers)) {
+              if (copy_batch_active_ && copy_batch_last_dst_ == target_render->image) {
+                EndCopyBatch();
+              }
+              BeginCopyBatch();
+              copy_image_(commands_work_, target_render->image, VK_IMAGE_LAYOUT_GENERAL,
+                             resolved->image.image, VK_IMAGE_LAYOUT_GENERAL, 1, &host_copy);
+              copy_batch_last_dst_ = resolved->image.image;
+            } else {
+              BarrierBeforeCopyResolve();
+              copy_image_(commands_work_, target_render->image, VK_IMAGE_LAYOUT_GENERAL,
+                             resolved->image.image, VK_IMAGE_LAYOUT_GENERAL, 1, &host_copy);
+              BarrierAfterCopyResolve();
+            }
           }
           ++copies_;
           ResolvedWritten(base_resolved, uint64_t(width) * height);
@@ -2521,6 +2556,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
 
   bool Present(rex::ui::Presenter* presenter, const TextureSwap& swap, uint32_t width,
                  uint32_t height) override {
+    EndCopyBatch();
     edram4_cleared_in_frame_.clear();  // redirected clear ordinals restart every frame
     // The per-draw diagnostic window opens here, on the PM4 ring thread, which is the one that records the
     // draws. Inside the paint call it would be another thread and the window would catch an arbitrary piece
@@ -2676,6 +2712,8 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       Reject(4, "Swap without a resolved texture: the test color is painted");
       return false;
     }
+    ++it->second.reads;
+    ++it->second.reads_total;
     Resolved& resolved = it->second;
     const uint32_t w = std::min(width ? width : resolved.image.width, resolved.image.width);
     const uint32_t h = std::min(height ? height : resolved.image.height, resolved.image.height);
@@ -2884,6 +2922,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       if (!RestoreContent(*image)) return nullptr;
       return image; // Acquired before DrawsVulkan can start a render pass.
     }
+    EndCopyBatch();
     ActivateTargetColor(base, pitch, *image);
     BeforeWriteColor(*image);  // sa2_native_lazy_front
     // Mandatory since color is also swapped. Here a pass starts that draws on top; if the content went away
@@ -2894,6 +2933,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
   }
 
   ImageNative* TargetDepth(uint32_t base, uint32_t format, uint32_t pitch) override {
+    EndCopyBatch();
     Image* image = GetDepth(base, format, pitch);
     if (!image || !Record()) {
       return nullptr;
@@ -2907,6 +2947,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
   }
 
   const ImageNative* ResolvedTexture(uint32_t address) override {
+    EndCopyBatch();
     const auto it = resolved_.find(address);
     if (it == resolved_.end()) {
       return nullptr;
@@ -2916,6 +2957,9 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
     // entry that has already been looked up: it costs nothing even though this is called thousands of times
     // per frame.
     ++it->second.reads;
+    if (it->second.reads_total++ == 0 && logged_skipped_addresses_.count(address)) {
+      REXLOG_INFO("[native] Candidate 5: unread resolve {:08X} requested by shader! Resuming resolves.", address);
+    }
     if (!presented_fronts_.empty() && presented_fronts_.count(address)) {
       NoteReadFront(address);  // sa2_native_lazy_front
     }
@@ -7449,6 +7493,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
     }
     const VkFramebuffer framebuffer_copy = framebuffer->second;
     if (draws_) draws_->FinishPass();
+    EndCopyBatch();
     if (edram4_batch_.active) {
       CloseComputeBatchEDRAM4();
       if (!CloseImportBatchEDRAM4()) {
@@ -8708,7 +8753,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       Reject(9, "copy to a texture of size 0");
       return nullptr;
     }
-    uint64_t reads = 0;
+    uint64_t reads = 0, reads_total = 0, created_frame = 0;
     auto it = resolved_.find(base);
     if (it != resolved_.end()) {
       if (it->second.image.width == width && it->second.image.height == height &&
@@ -8739,6 +8784,8 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       // its own alias, get their bytes while it is still here. `it` stays valid (no entry is added or removed).
       AliasesBeforeImageGoes(base);
       reads = it->second.reads;
+      reads_total = it->second.reads_total;
+      created_frame = it->second.created_frame;
       // banjo-nx: park the old shape and reuse a parked one of the requested shape (banjo_native_park_resolved).
       // Not while an EDRAM tile owner points at the image (the owner keeps an Image*), nor with resolves
       // swapped into targets (ResolverNoCopy), and at most 64 parked images.
@@ -8761,6 +8808,8 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
           back.image.swap_rb = swap_rb;
           back.image.resolved_guest_format = format;
           back.reads = reads;
+          back.reads_total = reads_total;
+          back.created_frame = created_frame ? created_frame : presented_;
           ++parked_resolved_reuses_;
           if (draws_) draws_->InvalidateTextures();  // that address is now sampled from this image
           return &resolved_.emplace(base, std::move(back)).first->second;
@@ -8782,6 +8831,8 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
     }
     Resolved resolved;
     resolved.reads = reads;
+    resolved.reads_total = reads_total;
+    resolved.created_frame = created_frame ? created_frame : presented_;
     resolved.revision = ++revision_resolved_;
     // The attachment usage (color or depth) is needed for sa2_native_resolver_no_copy: this image can
     // end up being the render target it is swapped with.
@@ -9010,6 +9061,25 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
                                   VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
                                   VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
                               0, 1, &barrier, 0, nullptr, 0, nullptr);
+  }
+
+  bool copy_batch_active_ = false;
+  VkImage copy_batch_last_dst_ = VK_NULL_HANDLE;
+
+  void BeginCopyBatch() {
+    if (!copy_batch_active_) {
+      BarrierBeforeCopyResolve();
+      copy_batch_active_ = true;
+      copy_batch_last_dst_ = VK_NULL_HANDLE;
+    }
+  }
+
+  void EndCopyBatch() {
+    if (copy_batch_active_) {
+      BarrierAfterCopyResolve();
+      copy_batch_active_ = false;
+      copy_batch_last_dst_ = VK_NULL_HANDLE;
+    }
   }
 
   /*
@@ -9382,6 +9452,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
   }
 
   bool BeginRecording() {
+    EndCopyBatch();
     // Slots rotate: while one frame is recorded, the previous ones can still be on the GPU. It only waits
     // if this slot's last submission has not finished yet, so the more slots there are, the further ahead
     // the CPU can get before it has to stop.
@@ -9702,6 +9773,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
 
   bool SendWork(bool wait) {
     if (recording_) {
+      EndCopyBatch();
       ++report_sends_;
       if (draws_) {
         draws_->BeforeSend();  // closes the pass and publishes the upload buffer
@@ -9942,12 +10014,36 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
                 "them); slot fence waits {} ({:.1f} ms); full GPU drains:{}",
                 report_sends_, full_count, double(ns_full) / 1e6, waits_gpu_ - report_waits_gpu_,
                 double(ns_waits_gpu_ - report_ns_waits_gpu_) / 1e6, list.empty() ? " none" : list);
+    const uint64_t frames = presented_ - report_presented_;
+    if (frames > 0) {
+      const double avg_cpu_rec = double(ns_record_ - report_ns_record_) / 1e6 / double(frames);
+      const double avg_cpu_wait = double(ns_waits_gpu_ - report_ns_waits_gpu_) / 1e6 / double(frames);
+      const double avg_gpu_ms = double(gpu_ns_ - report_gpu_ns_) / 1e6 * 1.627 / double(frames);
+      const double total_cpu_frame = avg_cpu_rec + avg_cpu_wait;
+      const double pct_waiting = total_cpu_frame > 0.001 ? (avg_cpu_wait / total_cpu_frame * 100.0) : 0.0;
+      REXLOG_INFO("[native] CPU vs GPU profile ({} frames): CPU recording: {:.2f} ms/frame | "
+                  "CPU waiting for GPU fence: {:.2f} ms/frame ({:.1f} % of CPU render time is IDLE WAITING FOR GPU) | "
+                  "real GPU time: {:.2f} ms/frame",
+                  frames, avg_cpu_rec, avg_cpu_wait, pct_waiting, avg_gpu_ms);
+      if (unread_resolves_skipped_ - report_unread_skipped_) {
+        REXLOG_INFO("[native] Candidate 5: skipped {} unread scratch resolves in this window ({:.1f} resolves/frame)",
+                    unread_resolves_skipped_ - report_unread_skipped_,
+                    double(unread_resolves_skipped_ - report_unread_skipped_) / double(frames));
+      }
+    }
+    report_presented_ = presented_;
+    report_ns_record_ = ns_record_;
+    report_gpu_ns_ = gpu_ns_;
+    report_unread_skipped_ = unread_resolves_skipped_;
     report_sends_ = 0;
     report_waits_gpu_ = waits_gpu_;
     report_ns_waits_gpu_ = ns_waits_gpu_;
   }
   uint64_t report_sends_ = 0, report_full_sends_ = 0, report_ns_full_sends_ = 0;
   uint64_t report_waits_gpu_ = 0, report_ns_waits_gpu_ = 0;
+  uint64_t report_presented_ = 0, report_ns_record_ = 0, report_gpu_ns_ = 0;
+  uint64_t unread_resolves_skipped_ = 0, report_unread_skipped_ = 0;
+  std::unordered_set<uint32_t> logged_skipped_addresses_;
 
   void WaitGpu() {
     if (recording_) {
