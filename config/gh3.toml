@@ -77,9 +77,10 @@ async_shader_compilation = false
 vulkan_async_skip_incomplete_frames = false
 store_shaders = true
 
-# Sincronizacion CPU-GPU para evitar atasco de cola (submission pressure 0xd5c)
-present_wait_acquisition_in_cpu = true
-vulkan_allow_present_mode_immediate = false
+# Sincronizacion Presenter Vulkan: semaforos en GPU y adquisicion anticipada (sin stall de CPU)
+present_wait_acquisition_in_cpu = false
+vulkan_allow_present_mode_immediate = true
+sa2_vsync_relaxed = true
 
 # Optimizaciones Tegra X1
 anisotropic_override = 1
