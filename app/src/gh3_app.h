@@ -31,6 +31,8 @@
 #include "cpu/sa2_enhancements.h"
 #include "me/me_native_system.h"
 #include "me/sa2_render_mode.h"
+#include "me/native/sa2_native_targets.h"
+#include <fstream>
 
 class Gh3App : public rex::ReXApp {
  public:
@@ -277,6 +279,41 @@ class Gh3App : public rex::ReXApp {
 
   void OnPostInitLogging() override {
     sa2::enh::Resolve();
+    std::error_code ec;
+    const auto folder = rex::filesystem::GetExecutableFolder();
+    for (const auto& cfg_name : {"config", "config.txt", "config.ini"}) {
+      const auto cfg_file = folder / cfg_name;
+      if (std::filesystem::exists(cfg_file, ec)) {
+        std::ifstream f(cfg_file);
+        if (f.is_open()) {
+          std::string line;
+          while (std::getline(f, line)) {
+            auto start = line.find_first_not_of(" \t\r\n");
+            if (start == std::string::npos || line[start] == '#') continue;
+            auto end = line.find_last_not_of(" \t\r\n");
+            std::string trimmed = line.substr(start, end - start + 1);
+            if (trimmed == "1" || trimmed.find("performance_mode=1") != std::string::npos ||
+                trimmed.find("performance_mode = 1") != std::string::npos ||
+                trimmed.find("gh3_performance_mode=1") != std::string::npos ||
+                trimmed.find("gh3_performance_mode = 1") != std::string::npos ||
+                trimmed.find("performance_mode=true") != std::string::npos ||
+                trimmed.find("performance_mode = true") != std::string::npos) {
+              REXCVAR_SET(gh3_performance_mode, true);
+              REXLOG_INFO("[GH3] Config file '{}': gh3_performance_mode enabled (1)", cfg_name);
+              break;
+            } else if (trimmed == "0" || trimmed.find("performance_mode=0") != std::string::npos ||
+                       trimmed.find("performance_mode = 0") != std::string::npos ||
+                       trimmed.find("performance_mode = false") != std::string::npos) {
+              REXCVAR_SET(gh3_performance_mode, false);
+              REXLOG_INFO("[GH3] Config file '{}': gh3_performance_mode disabled (0)", cfg_name);
+              break;
+            }
+          }
+        }
+        break;
+      }
+    }
+    REXLOG_INFO("[GH3] Active performance mode: {}", REXCVAR_GET(gh3_performance_mode) ? "ENABLED (1, black background 60 FPS)" : "DISABLED (0, normal 3D venue)");
   }
 
   void OnPreSetup(rex::RuntimeConfig& config) override {

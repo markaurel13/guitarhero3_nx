@@ -177,6 +177,9 @@ REXCVAR_DEFINE_INT32(sa2_native_edram_alias_mode, 4, "SA2 renderer",
                      "4 experimental shared depth/color ownership (not a complete bit-exact emulation)")
     .range(0, 4);
 
+REXCVAR_DEFINE_BOOL(gh3_performance_mode, false, "GH3",
+                    "Performance Mode: black background, no 3D venue (0 = disabled, 1 = enabled)");
+
 REXCVAR_DEFINE_INT32(sa2_diag_resolves_from, 0, "SA2",
                      "Diagnostic: logs the raw registers of resolves number N to N+79 (0 = off)");
 // Diagnostic of sa2_gpu_resolve_alias: every resolve and alias event of 40 presented frames from this one (0 = off).
@@ -1715,7 +1718,28 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
                            target_render->format == kColorFormat &&
                            resolved->image.format == kColorFormat &&
                            (request_width * 4 >= fits_width * 5 || request_height * 4 >= fits_height * 5);
-      if (shrink && uint32_t(x0) < target_render->width && uint32_t(y0) < target_render->height) {
+      const bool is_venue_target = (base_resolved == 0x089C8000 || base_resolved == 0x0BEEC000);
+      if (REXCVAR_GET(gh3_performance_mode) && is_venue_target && resolved->image.format == kColorFormat) {
+        VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+        barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = resolved->image.image;
+        barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        dfn_.vkCmdPipelineBarrier(commands_work_, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        const VkClearColorValue black = {.float32 = {0.0f, 0.0f, 0.0f, 1.0f}};
+        dfn_.vkCmdClearColorImage(commands_work_, resolved->image.image, VK_IMAGE_LAYOUT_GENERAL, &black, 1,
+                                 &barrier.subresourceRange);
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        dfn_.vkCmdPipelineBarrier(commands_work_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        resolved->image.prepared = true;
+        ResolvedWritten(base_resolved, uint64_t(resolved->image.width) * resolved->image.height);
+        ResolvedRead(reg, *resolved, x0, y0, dx, dy, resolved->image.width, resolved->image.height);
+        ++copies_;
+      } else if (shrink && uint32_t(x0) < target_render->width && uint32_t(y0) < target_render->height) {
         BeforeResolvedWrite(base_resolved);  // sa2_gpu_resolve_alias
         // sa2_native_lazy_front. If this texture had a deferred copy, it is dropped if this resolve
         // covers it entirely, and recorded first otherwise.
@@ -4456,6 +4480,15 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
         continue;
       }
       Image& source = *owner_state.image;
+      if (target.edram_depth && !source.edram_depth) {
+        // A depth buffer never imports raw color pixel data from an old color pass.
+        // Skipping color->depth avoids 8,900+ redundant Vulkan render passes per 10s
+        // that choke the Tegra X1 GPU, while keeping depth->color (venue lighting/DoF) intact.
+        const uint32_t physical = (target.edram_base + tile) & 2047u;
+        NoteSynchronizedEDRAM4(target, physical, owners_tiles_edram4_[physical].version);
+        ++tile;
+        continue;
+      }
       const bool native_msaa_import = IsDepthNative2xEDRAM4(source) &&
           (IsDepthNative2xEDRAM4(target) || IsDepthNative1xEDRAM4(target));
       // sa2_msaa: host multisampled targets go on to the transfers, which take a single-sample source into them

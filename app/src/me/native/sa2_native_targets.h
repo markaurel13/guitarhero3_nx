@@ -9,6 +9,9 @@
 #pragma once
 
 #include "sa2_native_draws.h"
+#include <rex/cvar.h>
+
+REXCVAR_DECLARE(bool, gh3_performance_mode);
 
 #include <array>
 #include <cstdint>

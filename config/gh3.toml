@@ -31,12 +31,18 @@
 # inicializa e o jogo rebenta na inicializacao grafica.
 # Renderizador Nativo Vulkan Directo (Fase 2 - 60 FPS sin emulacion de CPU)
 sa2_renderer_native = true
-# Escala de render: 540p en modo portatil (960x540, calidad visual nativa Switch sin degradacion)
-sa2_render_height_handheld = 540
+# Escala de render: 360p en modo portatil (640x360, garantiza 60 FPS en GPU incluso con escenario 3D completo)
+sa2_render_height_handheld = 360
 sa2_render_height_docked = 720
 sa2_gpu_boost = true
 sa2_shader_misses = "shader_misses"
 sa2_native_logical_resolved_size = false
+
+# Modo Performance Oficial (Fondo Negro / Sin Escenario 3D):
+# 0 (o false): Desactivado (por defecto, renderiza el escenario 3D completo).
+# 1 (o true): Activado (fondo negro solido estilo Guitar Hero 3 PC / Clone Hero a 60 FPS clavados).
+# Tambien puedes configurarlo colocando un archivo llamado 'config' junto al .nro con un 1 o un 0.
+gh3_performance_mode = false
 
 # Optimizaciones CPU y Ring Thread (60 FPS)
 sa2_cpu_enhancements = true
@@ -56,11 +62,16 @@ sa2_native_deferred_worker_core = -1
 switch_exclusive_core = 0
 sa2_cpu_main_thread_priority = true
 sa2_main_thread_priority = 46
+sa2_native_fingerprint_mode = 2
+sa2_native_indices_cache = true
+sa2_native_pipelines_prewarm = true
 sa2_native_texture_interval_max = 256
-sa2_native_fingerprints_kb_frame = 0
-sa2_native_dedupe_max_fingerprint = 1
+sa2_native_fingerprints_kb_frame = 2048
+sa2_native_dedupe_max_fingerprint = 16384
 thread_signal_skip_idle = true
 sa2_native_slots_work = 3
+# EDRAM mode 4 activo con filtro nativo (elimina 8900+ pases color->depth sin romper depth->color para iluminacion del fondo)
+sa2_native_edram_alias_mode = 4
 sa2_native_edram4_stencil_enable = false
 sa2_native_edram4_stencil_inert = true
 sa2_native_edram4_stencil_lazy = true
@@ -88,10 +99,11 @@ async_shader_compilation = false
 vulkan_async_skip_incomplete_frames = false
 store_shaders = true
 
-# Sincronizacion Presenter Vulkan: semaforos en GPU y adquisicion anticipada (sin stall de CPU)
+# Sincronizacion Presenter Vulkan: semaforos en GPU y modo IMMEDIATE (triple buffer no bloqueante en Horizon, sin stutter FIFO)
 present_wait_acquisition_in_cpu = false
-vulkan_allow_present_mode_immediate = false
+vulkan_allow_present_mode_immediate = true
 vulkan_allow_present_mode_fifo_relaxed = true
+# VSync relajado: entrega los cuadros tan pronto como estan listos sin cuantizacion FIFO ni saltos de notas
 sa2_vsync_relaxed = true
 
 # Optimizaciones Tegra X1
@@ -110,6 +122,7 @@ log_level = "info"
 fullscreen = true
 window_width = 1280
 window_height = 720
+# vsync = true fija la cadencia del vblank guest a 60 Hz (16.66 ms) para que el highway y el audio no se desincronicen
 vsync = true
 
 # En Switch mnk_mode (teclado de PC) debe estar apagado para que el gamepad/Joy-Con funcione
@@ -180,7 +193,7 @@ ui_theme_desc = "0A0A0AC8"  # painel de descricao
 #          arrisca artefactos nas notas, que e o que estas a olhar.
 #
 # ATENCAO: todos estes cvars sao kRequiresRestart -- mudar exige reabrir o jogo.
-present_effect = "bilinear"
+present_effect = "fsr"
 present_fsr_sharpness_reduction = 0.2   # menos = mais nitido
 
 # ---------------------------------------------------------------------------
