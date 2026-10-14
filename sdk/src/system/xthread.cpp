@@ -363,6 +363,9 @@ namespace {
 // before Create().
 int SwitchPriorityFor(bool guest_thread, std::string_view name) {
   if (guest_thread) {
+    if (name.starts_with("Main")) {
+      return 0x2E;  // 46: Horizon priority for main game thread (above background 0x3B workers!)
+    }
     return REX_SWITCH_PRIO_GUEST;
   }
   // set_name() stores the name with the handle appended ("Audio Worker (F8000014)"),
@@ -496,7 +499,9 @@ X_STATUS XThread::Create() {
   thread_ = rex::thread::Thread::Create(params, [this]() {
     rex::initialize_seh_thread();
 #if REX_PLATFORM_SWITCH
-    RexSwitchSetCurrentThreadPriority(SwitchPriorityFor(guest_thread_, thread_name_));
+    const int target_prio = SwitchPriorityFor(guest_thread_, thread_name_);
+    RexSwitchSetCurrentThreadPriority(target_prio);
+    REXLOG_INFO("[nx] Thread '{}' priority set to {:#x}", thread_name_, target_prio);
 #endif
     runtime::ThreadState::Bind(thread_state_.get());
 

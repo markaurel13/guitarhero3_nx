@@ -25130,19 +25130,15 @@ DEFINE_REX_FUNC(sub_826E1F90) {
 	// stb r11,264(r31)
 	REX_STORE_U8(ctx.r31.u32 + 264, ctx.r11.u8);
 loc_826E1FAC:
+#if defined(__SWITCH__)
+	svcSleepThread(4000000);
+#endif
 	// lwz r3,276(r31)
 	ctx.r3.u64 = REX_LOAD_U32(ctx.r31.u32 + 276);
 	// cmplwi cr6,r3,0
 	ctx.cr6.compare<uint32_t>(ctx.r3.u32, 0, ctx.xer);
 	// beq cr6,0x826e1fbc
-#if defined(__SWITCH__)
-	if (ctx.cr6.eq) {
-		svcSleepThread(1000000);
-		goto loc_826E1FBC;
-	}
-#else
 	if (ctx.cr6.eq) goto loc_826E1FBC;
-#endif
 	// bl 0x826e4748
 	ctx.lr = 0x826E1FBC;
 	sub_826E4748(ctx, base);
@@ -25197,14 +25193,7 @@ loc_826E2008:
 	// cmplwi cr6,r11,0
 	ctx.cr6.compare<uint32_t>(ctx.r11.u32, 0, ctx.xer);
 	// bne cr6,0x826e1fac
-#if defined(__SWITCH__)
-	if (!ctx.cr6.eq) {
-		svcSleepThread(1000000);
-		goto loc_826E1FAC;
-	}
-#else
 	if (!ctx.cr6.eq) goto loc_826E1FAC;
-#endif
 	// li r4,0
 	ctx.r4.s64 = 0;
 	// lwz r3,280(r31)
