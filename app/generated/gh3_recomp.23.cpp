@@ -13800,7 +13800,7 @@ loc_823ED080:
 	ctx.cr6.compare<uint32_t>(ctx.r23.u32, 0, ctx.xer);
 #if defined(__SWITCH__)
 	if (ctx.cr6.eq) {
-		svcSleepThread(6000000);
+		svcSleepThread(2000000);
 		goto loc_823ECEC4;
 	}
 #else
@@ -13811,7 +13811,7 @@ loc_823ED080:
 	ctx.cr6.compare<int32_t>(ctx.r27.s32, -1, ctx.xer);
 #if defined(__SWITCH__)
 	if (!ctx.cr6.eq) {
-		svcSleepThread(6000000);
+		svcSleepThread(2000000);
 		goto loc_823ECEC4;
 	}
 #else

@@ -25131,7 +25131,9 @@ DEFINE_REX_FUNC(sub_826E1F90) {
 	REX_STORE_U8(ctx.r31.u32 + 264, ctx.r11.u8);
 loc_826E1FAC:
 #if defined(__SWITCH__)
-	svcSleepThread(20000000);
+	if (REX_LOAD_U32(ctx.r31.u32 + 276) == 0 && REX_LOAD_U32(ctx.r31.u32 + 284) == 0) {
+		svcSleepThread(1000000);
+	}
 #endif
 	// lwz r3,276(r31)
 	ctx.r3.u64 = REX_LOAD_U32(ctx.r31.u32 + 276);

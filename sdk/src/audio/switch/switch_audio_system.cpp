@@ -314,6 +314,15 @@ void SwitchAudioSystem::FillAndAppend(size_t buffer_index) {
       }
     }
   }
+  static uint64_t last_underrun_log_tick = 0;
+  if (frames_missing > 0) {
+    uint64_t now_ticks = armGetSystemTick();
+    if (armTicksToNs(now_ticks - last_underrun_log_tick) > 2'000'000'000ull) {
+      last_underrun_log_tick = now_ticks;
+      REXLOG_WARN("SwitchAudioSystem: underrun ({} frames missing, {} mixed)",
+                  frames_missing, frames_mixed);
+    }
+  }
   s16* samples = output.samples[buffer_index];
   bool pcm_nonzero = false;
   // How much the mix saturates before it is clipped (the crackling in handheld mode). Counting only.
