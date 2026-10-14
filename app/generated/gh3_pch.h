@@ -30,6 +30,11 @@
 #include <rex/system/mmio_handler.h>
 #include <rex/thread.h>
 
+#if defined(__SWITCH__)
+extern "C" uint32_t svcSleepThread(int64_t nanoSeconds);
+extern "C" void RexSwitchSleep(uint64_t nanoseconds);
+#endif
+
 #include <atomic>
 #include <cassert>
 #include <csetjmp>

@@ -25137,7 +25137,7 @@ loc_826E1FAC:
 	// beq cr6,0x826e1fbc
 #if defined(__SWITCH__)
 	if (ctx.cr6.eq) {
-		rex::thread::Sleep(std::chrono::microseconds(500));
+		svcSleepThread(1000000);
 		goto loc_826E1FBC;
 	}
 #else
@@ -25199,7 +25199,7 @@ loc_826E2008:
 	// bne cr6,0x826e1fac
 #if defined(__SWITCH__)
 	if (!ctx.cr6.eq) {
-		rex::thread::Sleep(std::chrono::microseconds(500));
+		svcSleepThread(1000000);
 		goto loc_826E1FAC;
 	}
 #else

@@ -183,6 +183,9 @@ void RexSwitchDescribeThreadFailure(size_t stack_size, char* out, size_t out_len
 /* Yields the current time slice to any runnable thread on Horizon OS. */
 void RexSwitchYield(void);
 
+/* Sleeps the current thread on Horizon OS for the given nanoseconds. */
+void RexSwitchSleep(uint64_t nanoseconds);
+
 #ifdef __cplusplus
 }
 #endif

@@ -244,6 +244,9 @@ void SyncMemory() {
 }
 
 void Sleep(std::chrono::microseconds duration) {
+#if defined(__SWITCH__)
+  RexSwitchSleep(static_cast<uint64_t>(duration.count()) * 1000ull);
+#else
   timespec rqtp = DurationToTimeSpec(duration);
   timespec rmtp = {};
   auto p_rqtp = &rqtp;
@@ -255,6 +258,7 @@ void Sleep(std::chrono::microseconds duration) {
     // in which case, we start sleeping again for the remainder
     std::swap(p_rqtp, p_rmtp);
   } while (ret == -1 && errno == EINTR);
+#endif
 }
 
 // AlertableSleep: defined below, after the condition classes (it parks on a wake point).
