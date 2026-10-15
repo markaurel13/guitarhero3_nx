@@ -144,17 +144,54 @@ extern PPCFuncMapping PPCFuncMappings[];
 #define REX_PREFETCH(x, write) __builtin_prefetch((const void*)REX_RAW_ADDR(x), (write))
 #endif
 
-#define REX_LOAD_U8(x) (*(volatile u8*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
-#define REX_LOAD_U16(x) __builtin_bswap16(*(volatile u16*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
-#define REX_LOAD_U32(x) __builtin_bswap32(*(volatile u32*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
-#define REX_LOAD_U64(x) __builtin_bswap64(*(volatile u64*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
+#define REX_SIMDE_SHUFFLES 1
+#define REX_GUEST_CAS_LEGACY 1
+#define REX_GUEST_VOLATILE volatile
+
+// rexglue ports: guest compare-and-swap without the trailing barrier (tools/guest_cas.py)
+#ifndef REX_GUEST_CAS
+#define REX_GUEST_CAS(p, e, d) __sync_bool_compare_and_swap((p), (e), (d))
+#endif
+
+// sa2-nx optimised codegen: loop barrier (tools/loop_barriers.py)
+#ifndef REX_LOOP_BARRIER
+#define REX_LOOP_BARRIER() __asm__ __volatile__("" ::: "memory")
+#endif
+
+// rexglue ports: 16-byte reversal of guest vectors without a table lookup (tools/vec_byteswap.py)
+#ifndef REX_BSWAP128
+#if (defined(__aarch64__) || defined(_M_ARM64)) && !defined(REX_BSWAP128_TABLE)
+[[gnu::always_inline]] static inline simde__m128i RexByteReverse128(simde__m128i v) noexcept {
+  const uint8x16_t r = vrev64q_u8(simde__m128i_to_neon_u8(v));
+  return simde__m128i_from_neon_u8(vextq_u8(r, r, 8));
+}
+#define REX_BSWAP128(v) RexByteReverse128(v)
+#else
+#define REX_BSWAP128(v) simde_mm_shuffle_epi8((v), simde_mm_load_si128((simde__m128i*)VectorMaskL))
+#endif
+#endif
+// rexglue ports: mask-table shuffles as a bare table lookup on AArch64 (tools/vec_byteswap.py)
+#ifndef REX_SHUFFLE_TABLE
+#if (defined(__aarch64__) || defined(_M_ARM64)) && !defined(REX_BSWAP128_TABLE)
+[[gnu::always_inline]] static inline simde__m128i RexShuffleTable(simde__m128i v, const uint8_t* row) noexcept {
+  return simde__m128i_from_neon_u8(vqtbl1q_u8(simde__m128i_to_neon_u8(v), vld1q_u8(row)));
+}
+#define REX_SHUFFLE_TABLE(v, row) RexShuffleTable((v), (row))
+#else
+#define REX_SHUFFLE_TABLE(v, row) simde_mm_shuffle_epi8((v), simde_mm_load_si128((simde__m128i*)(row)))
+#endif
+#endif
+#define REX_LOAD_U8(x) (*(REX_GUEST_VOLATILE u8*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
+#define REX_LOAD_U16(x) __builtin_bswap16(*(REX_GUEST_VOLATILE u16*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
+#define REX_LOAD_U32(x) __builtin_bswap32(*(REX_GUEST_VOLATILE u32*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
+#define REX_LOAD_U64(x) __builtin_bswap64(*(REX_GUEST_VOLATILE u64*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
 #define REX_LOAD_STRING(x, len) \
   std::string_view(reinterpret_cast<const char*>(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)), (len))
 
-#define REX_STORE_U8(x, y)  (*(volatile u8*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = (y))
-#define REX_STORE_U16(x, y) (*(volatile u16*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap16(y))
-#define REX_STORE_U32(x, y) (*(volatile u32*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap32(y))
-#define REX_STORE_U64(x, y) (*(volatile u64*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap64(y))
+#define REX_STORE_U8(x, y)  (*(REX_GUEST_VOLATILE u8*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = (y))
+#define REX_STORE_U16(x, y) (*(REX_GUEST_VOLATILE u16*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap16(y))
+#define REX_STORE_U32(x, y) (*(REX_GUEST_VOLATILE u32*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap32(y))
+#define REX_STORE_U64(x, y) (*(REX_GUEST_VOLATILE u64*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap64(y))
 
 // Mass Effect diet (codegen option dform_disp_split): D-form accesses pass the register and the signed
 // displacement apart, so the address is base + zext(reg) + disp (one add shared by neighbouring accesses, the
@@ -172,16 +209,32 @@ extern PPCFuncMapping PPCFuncMappings[];
 #define REX_STORE_D_U64(r, d, y) REX_STORE_U64((u32)(r) + (d), y)
 #else
 #define REX_ADDR_D(r, d) (base + (uint64_t)(u32)(r) + (int64_t)(d))
-#define REX_LOAD_D_U8(r, d) (*(volatile u8*)REX_ADDR_D(r, d))
-#define REX_LOAD_D_U16(r, d) __builtin_bswap16(*(volatile u16*)REX_ADDR_D(r, d))
-#define REX_LOAD_D_U32(r, d) __builtin_bswap32(*(volatile u32*)REX_ADDR_D(r, d))
-#define REX_LOAD_D_U64(r, d) __builtin_bswap64(*(volatile u64*)REX_ADDR_D(r, d))
-#define REX_STORE_D_U8(r, d, y) (*(volatile u8*)REX_ADDR_D(r, d) = (y))
-#define REX_STORE_D_U16(r, d, y) (*(volatile u16*)REX_ADDR_D(r, d) = __builtin_bswap16(y))
-#define REX_STORE_D_U32(r, d, y) (*(volatile u32*)REX_ADDR_D(r, d) = __builtin_bswap32(y))
-#define REX_STORE_D_U64(r, d, y) (*(volatile u64*)REX_ADDR_D(r, d) = __builtin_bswap64(y))
+#define REX_LOAD_D_U8(r, d) (*(REX_GUEST_VOLATILE u8*)REX_ADDR_D(r, d))
+#define REX_LOAD_D_U16(r, d) __builtin_bswap16(*(REX_GUEST_VOLATILE u16*)REX_ADDR_D(r, d))
+#define REX_LOAD_D_U32(r, d) __builtin_bswap32(*(REX_GUEST_VOLATILE u32*)REX_ADDR_D(r, d))
+#define REX_LOAD_D_U64(r, d) __builtin_bswap64(*(REX_GUEST_VOLATILE u64*)REX_ADDR_D(r, d))
+#define REX_STORE_D_U8(r, d, y) (*(REX_GUEST_VOLATILE u8*)REX_ADDR_D(r, d) = (y))
+#define REX_STORE_D_U16(r, d, y) (*(REX_GUEST_VOLATILE u16*)REX_ADDR_D(r, d) = __builtin_bswap16(y))
+#define REX_STORE_D_U32(r, d, y) (*(REX_GUEST_VOLATILE u32*)REX_ADDR_D(r, d) = __builtin_bswap32(y))
+#define REX_STORE_D_U64(r, d, y) (*(REX_GUEST_VOLATILE u64*)REX_ADDR_D(r, d) = __builtin_bswap64(y))
 #endif
 
+// rexglue ports: single-precision loads swapped in the vector unit (tools/float_loads.py)
+#ifndef REX_LOAD_F32
+#if (defined(__aarch64__) || defined(_M_ARM64)) && !defined(REX_FLOAT_LOADS_INTEGER)
+[[gnu::always_inline]] static inline float RexFloatFromBigEndian(const void* p) noexcept {
+  float f;
+  __builtin_memcpy(&f, p, 4);  // ldr s
+  const float32x2_t v = vset_lane_f32(f, vdup_n_f32(0.0f), 0);
+  return vget_lane_f32(vreinterpret_f32_u8(vrev32_u8(vreinterpret_u8_f32(v))), 0);  // rev32
+}
+#define REX_LOAD_F32(x) RexFloatFromBigEndian(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x))
+#define REX_LOAD_D_F32(r, d) RexFloatFromBigEndian(REX_ADDR_D(r, d))
+#else
+#define REX_LOAD_F32(x) std::bit_cast<float>(u32(REX_LOAD_U32(x)))
+#define REX_LOAD_D_F32(r, d) std::bit_cast<float>(u32(REX_LOAD_D_U32(r, d)))
+#endif
+#endif
 #define REX_MEMORY_SIZE 0x100000000ull
 
 //=============================================================================
@@ -362,7 +415,11 @@ inline std::unordered_map<u32, jmp_buf>& get_jmp_buf_map() {
 // Trap Handling
 //=============================================================================
 
-inline void ppc_trap(PPCContext& ctx, u8* base, u16 trap_type) {
+// rexglue ports: the trap helper out of line and cold (tools/pch_cold_traps.py)
+#ifndef REX_TRAP_ATTR
+#define REX_TRAP_ATTR [[gnu::cold, gnu::noinline]]
+#endif
+REX_TRAP_ATTR inline void ppc_trap(PPCContext& ctx, u8* base, u16 trap_type) {
   switch (trap_type) {
     case 20:
     case 26: {
