@@ -1,0 +1,10 @@
+# Guitar Hero 3 NX - Config
+# Modos de Juego (game_mode o performance_mode):
+# 0 = MODO CALIDAD (30 FPS solidos como roca, graficos completos de Xbox 360 con sombras y luces dinamicas)
+# 1 = MODO RENDIMIENTO (60 FPS fluidos, escenario 3D visible optimizado estilo Wii sin sombras pesadas)
+game_mode = 1
+
+# Venue Sub-stepping (Band at 30 FPS / Highway, notes, audio, input at 60 FPS):
+# 1 = ON (Recomendado, ahorra CPU alternando animaciones del escenario entre fotogramas)
+# 0 = OFF (Actualiza todas las animaciones en cada fotograma)
+venue_substep = 1
