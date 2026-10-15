@@ -1,4 +1,6 @@
 #include "gh3_funcs.140.h"
+#include "me/me_native_system.h"
+#include "me/native/sa2_native_targets.h"
 
 DEFINE_REX_FUNC(sub_820D10C0) {
 	REX_FUNC_PROLOGUE();
@@ -13743,6 +13745,14 @@ loc_824238A0:
 
 DEFINE_REX_FUNC(sub_824284D8) {
 	REX_FUNC_PROLOGUE();
+#if defined(__SWITCH__)
+	if (REXCVAR_GET(gh3_venue_substep)) {
+		const uint64_t swaps = me::native::PresentedSwaps();
+		if ((swaps & 1) == 0) {
+			return;
+		}
+	}
+#endif
 	uint32_t ea{};
 	// mflr r12
 	ctx.r12.u64 = ctx.lr;

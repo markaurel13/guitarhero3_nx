@@ -12432,12 +12432,6 @@ DEFINE_REX_FUNC(sub_823ECB80) {
 	ctx.r11.u64 = REX_LOAD_U32(ctx.r11.u32 + 0);
 	// mtctr r11
 	ctx.ctr.u64 = ctx.r11.u64;
-#if defined(__SWITCH__)
-	static std::unordered_set<uint32_t> s_seen_targets;
-	if (s_seen_targets.size() < 32 && s_seen_targets.insert(ctx.ctr.u32).second) {
-		REXLOG_INFO("[task] Worker queue task target: 0x{:08X}", ctx.ctr.u32);
-	}
-#endif
 	// bctr 
 	REX_CALL_INDIRECT_FUNC(ctx.ctr.u32);
 	return;

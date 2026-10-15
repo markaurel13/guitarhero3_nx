@@ -1836,7 +1836,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
         copy.srcOffset = {x0, y0, 0};
         copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         copy.dstOffset = {int32_t(dx), int32_t(dy), 0};
-        const bool is_tiny_bloom_mip = (width <= 128 && height <= 256) &&
+        const bool is_tiny_bloom_mip = (width <= 640 && height <= 720) &&
                                        !multisampled &&
                                        (resolved->reads == 0 && resolved->reads_total == 0) &&
                                        presented_ > 30;
