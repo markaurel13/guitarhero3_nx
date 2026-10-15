@@ -295,17 +295,25 @@ class Gh3App : public rex::ReXApp {
             std::string trimmed = line.substr(start, end - start + 1);
             if (trimmed == "1" || trimmed.find("performance_mode=1") != std::string::npos ||
                 trimmed.find("performance_mode = 1") != std::string::npos ||
+                trimmed.find("game_mode=1") != std::string::npos ||
+                trimmed.find("game_mode = 1") != std::string::npos ||
+                trimmed.find("mode=1") != std::string::npos ||
+                trimmed.find("mode = 1") != std::string::npos ||
                 trimmed.find("gh3_performance_mode=1") != std::string::npos ||
                 trimmed.find("gh3_performance_mode = 1") != std::string::npos ||
                 trimmed.find("performance_mode=true") != std::string::npos ||
                 trimmed.find("performance_mode = true") != std::string::npos) {
               REXCVAR_SET(gh3_performance_mode, true);
-              REXLOG_INFO("[GH3] Config file '{}': gh3_performance_mode enabled (1)", cfg_name);
+              REXLOG_INFO("[GH3] Config file '{}': Mode 1 (PERFORMANCE 60 FPS) selected", cfg_name);
             } else if (trimmed == "0" || trimmed.find("performance_mode=0") != std::string::npos ||
                        trimmed.find("performance_mode = 0") != std::string::npos ||
+                       trimmed.find("game_mode=0") != std::string::npos ||
+                       trimmed.find("game_mode = 0") != std::string::npos ||
+                       trimmed.find("mode=0") != std::string::npos ||
+                       trimmed.find("mode = 0") != std::string::npos ||
                        trimmed.find("performance_mode = false") != std::string::npos) {
               REXCVAR_SET(gh3_performance_mode, false);
-              REXLOG_INFO("[GH3] Config file '{}': gh3_performance_mode disabled (0)", cfg_name);
+              REXLOG_INFO("[GH3] Config file '{}': Mode 0 (QUALITY 30 FPS) selected", cfg_name);
             }
             if (trimmed.find("venue_substep=0") != std::string::npos ||
                 trimmed.find("venue_substep = 0") != std::string::npos ||
@@ -327,7 +335,7 @@ class Gh3App : public rex::ReXApp {
         break;
       }
     }
-    REXLOG_INFO("[GH3] Active performance mode: {}", REXCVAR_GET(gh3_performance_mode) ? "ENABLED (1, black background 60 FPS)" : "DISABLED (0, normal 3D venue)");
+    REXLOG_INFO("[GH3] Active game mode: {}", REXCVAR_GET(gh3_performance_mode) ? "PERFORMANCE (60 FPS, optimized 3D venue)" : "QUALITY (30 FPS rock-solid, full 3D venue & shadows)");
     REXLOG_INFO("[GH3] Active venue sub-stepping: {}", REXCVAR_GET(gh3_venue_substep) ? "ENABLED (30 FPS band / 60 FPS highway)" : "DISABLED (60 FPS band)");
   }
 

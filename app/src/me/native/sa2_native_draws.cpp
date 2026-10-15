@@ -32,6 +32,7 @@
 #include "cpu/sa2_enhancements.h"
 #include "sa2_deferred_recording.h"
 #include "sa2_native_draws.h"
+#include "sa2_native_targets.h"
 #include "me_formats_color.h"
 #include "sa2_waits_hitch.h"
 
@@ -2686,6 +2687,9 @@ class DrawsVulkanImpl final : public DrawsVulkan {
     const uint32_t edram_mode = r[gr::XE_GPU_REG_RB_MODECONTROL] & 0x7;
     if (edram_mode != uint32_t(xenos::EdramMode::kColorDepth) && edram_mode != 5) {
       return Reject(1, "EDRAM mode without color or depth");
+    }
+    if (REXCVAR_GET(gh3_performance_mode) && edram_mode == 5) {
+      return true;
     }
     // Mode 5 (depth only): the Xenos does not run the pixel shader (IsPixelShaderNeededWithRasterization). Without a PS there are no textures, pixel constants or alpha test,
     // and the pipeline has no fragment stage. The shadow passes work this way, and some arrive with the PS

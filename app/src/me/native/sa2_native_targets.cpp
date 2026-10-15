@@ -1721,28 +1721,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
                            target_render->format == kColorFormat &&
                            resolved->image.format == kColorFormat &&
                            (request_width * 4 >= fits_width * 5 || request_height * 4 >= fits_height * 5);
-      const bool is_venue_target = (base_resolved == 0x089C8000 || base_resolved == 0x0BEEC000);
-      if (REXCVAR_GET(gh3_performance_mode) && is_venue_target && resolved->image.format == kColorFormat) {
-        VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-        barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier.srcQueueFamilyIndex = barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = resolved->image.image;
-        barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        dfn_.vkCmdPipelineBarrier(commands_work_, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-        const VkClearColorValue black = {.float32 = {0.0f, 0.0f, 0.0f, 1.0f}};
-        dfn_.vkCmdClearColorImage(commands_work_, resolved->image.image, VK_IMAGE_LAYOUT_GENERAL, &black, 1,
-                                 &barrier.subresourceRange);
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
-        dfn_.vkCmdPipelineBarrier(commands_work_, VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-        resolved->image.prepared = true;
-        ResolvedWritten(base_resolved, uint64_t(resolved->image.width) * resolved->image.height);
-        ResolvedRead(reg, *resolved, x0, y0, dx, dy, resolved->image.width, resolved->image.height);
-        ++copies_;
-      } else if (shrink && uint32_t(x0) < target_render->width && uint32_t(y0) < target_render->height) {
+      if (shrink && uint32_t(x0) < target_render->width && uint32_t(y0) < target_render->height) {
         BeforeResolvedWrite(base_resolved);  // sa2_gpu_resolve_alias
         // sa2_native_lazy_front. If this texture had a deferred copy, it is dropped if this resolve
         // covers it entirely, and recorded first otherwise.
