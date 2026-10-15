@@ -825,6 +825,7 @@ std::atomic<uint32_t> g_ring_processed{0}, g_ring_published{0};
 // XE_SWAP packets the ring has presented (PresentedSwaps: lockstep video captures), and the app's hook called right
 // after each one (SetPresentHook).
 std::atomic<uint64_t> g_presented_swaps{0};
+std::atomic<uint64_t> g_guest_swap_count{0};
 std::atomic<void (*)(uint64_t)> g_present_hook{nullptr};
 std::atomic<uint64_t> g_draw_records{0};
 
@@ -1160,13 +1161,19 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
     }
     start_ = last_report_ = Clock::now();
     vblank_thread_ = rex::system::object_ref<rex::system::XHostThread>(new rex::system::XHostThread(
-        kernel_state_, 128 * 1024, 0, [this]() { return VblankLoop(); }));
+        kernel_state_, 128 * 1024, 4 << 24, [this]() { return VblankLoop(); }));
     vblank_thread_->set_name("GPU VSync native");
     vblank_thread_->Create();
+#if defined(__SWITCH__)
+    vblank_thread_->SetAffinity(1 << 4);
+#endif
     ring_thread_ = rex::system::object_ref<rex::system::XHostThread>(new rex::system::XHostThread(
-        kernel_state_, 128 * 1024, 0, [this]() { return RingLoop(); }));
+        kernel_state_, 128 * 1024, 4 << 24, [this]() { return RingLoop(); }));
     ring_thread_->set_name("GPU ring native");
     ring_thread_->Create();
+#if defined(__SWITCH__)
+    ring_thread_->SetAffinity(1 << 4);
+#endif
     return X_STATUS_SUCCESS;
   }
 
@@ -4318,6 +4325,8 @@ std::atomic<uint32_t> g_device_ps_offset{12412};
 }  // namespace
 
 uint64_t PresentedSwaps() { return g_presented_swaps.load(std::memory_order_acquire); }
+uint64_t GuestSwapCount() { return g_guest_swap_count.load(std::memory_order_relaxed); }
+void IncrementGuestSwapCount() { g_guest_swap_count.fetch_add(1, std::memory_order_relaxed); }
 
 bool NativeActive() { return g_native_active.load(std::memory_order_acquire); }
 

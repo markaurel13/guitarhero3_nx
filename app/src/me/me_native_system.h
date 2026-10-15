@@ -74,6 +74,10 @@ bool RingIdle();
 // XE_SWAP packets the ring has presented so far (one per game flip): lockstep video captures wait for a frame's swap.
 uint64_t PresentedSwaps();
 
+// Guest frame swaps completed on the game thread (Core 0): used for synchronous venue sub-stepping.
+uint64_t GuestSwapCount();
+void IncrementGuestSwapCount();
+
 // True while the native renderer runs (the emulated GPU needs the game's own Direct3D: the native layer stays off).
 bool NativeActive();
 

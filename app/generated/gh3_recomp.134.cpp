@@ -1,4 +1,5 @@
 #include "gh3_funcs.134.h"
+#include "me/me_native_system.h"
 
 DEFINE_REX_FUNC(sub_820D1090) {
 	REX_FUNC_PROLOGUE();
@@ -16732,6 +16733,7 @@ DEFINE_REX_FUNC(sub_824B27B8) {
 
 DEFINE_REX_FUNC(sub_824B2F20) {
 	REX_FUNC_PROLOGUE();
+	me::native::IncrementGuestSwapCount();
 	uint32_t ea{};
 	// mflr r12
 	ctx.r12.u64 = ctx.lr;

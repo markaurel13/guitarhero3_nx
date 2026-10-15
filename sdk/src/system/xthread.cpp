@@ -463,7 +463,7 @@ X_STATUS XThread::Create() {
   REXSYS_NOISY_DEBUG("XThread{:08X} ({:X}) Stack: {:08X}-{:08X}", handle(), thread_id_,
                      stack_limit_, stack_base_);
 
-  uint8_t cpu_index = GetFakeCpuNumber(static_cast<uint8_t>(creation_params_.creation_flags >> 24));
+  uint8_t cpu_index = main_thread_ ? 0 : GetFakeCpuNumber(static_cast<uint8_t>(creation_params_.creation_flags >> 24));
 
   // Initialize the KTHREAD object.
   InitializeGuestObject();
@@ -967,6 +967,19 @@ void XThread::SetActiveCpu(uint8_t cpu_index) {
     pcr.prcb_data.current_cpu = cpu_index;
   }
 
+#if defined(__SWITCH__)
+  if (!REXCVAR_GET(ignore_thread_affinities)) {
+    // Horizon on Nintendo Switch provides 3 userland CPU cores (0, 1, 2).
+    // Map Xbox 360 6 hardware threads (0..5) to physical Cortex-A57 cores:
+    // CPU 0, 1 -> Switch Core 0 (Main Thread / Neversoft engine dispatch)
+    // CPU 2, 3 -> Switch Core 1 (Worker threads: Havok, skinning, tasks)
+    // CPU 4, 5 -> Switch Core 2 (Audio, I/O, OS background)
+    const uint32_t switch_core = (cpu_index / 2) % 3;
+    if (thread_) {
+      thread_->set_affinity_mask(uint64_t(1) << switch_core);
+    }
+  }
+#else
   if (rex::thread::logical_processor_count() >= 6) {
     if (!REXCVAR_GET(ignore_thread_affinities)) {
       thread_->set_affinity_mask(uint64_t(1) << cpu_index);
@@ -980,6 +993,7 @@ void XThread::SetActiveCpu(uint8_t cpu_index) {
       REXSYS_WARN("Too few processor cores - scheduling will be wonky");
     }
   }
+#endif
 }
 
 bool XThread::GetTLSValue(uint32_t slot, uint32_t* value_out) {
