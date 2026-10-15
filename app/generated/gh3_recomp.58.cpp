@@ -1,4 +1,6 @@
 #include "gh3_funcs.58.h"
+#include "me/me_native_system.h"
+#include "me/native/sa2_native_targets.h"
 
 DEFINE_REX_FUNC(sub_820D0C50) {
 	REX_FUNC_PROLOGUE();
@@ -13393,6 +13395,15 @@ DEFINE_REX_FUNC(sub_823ED0A8) {
 
 DEFINE_REX_FUNC(sub_823EF7D8) {
 	REX_FUNC_PROLOGUE();
+#if defined(__SWITCH__)
+	if (REXCVAR_GET(gh3_venue_substep)) {
+		const uint64_t swaps = me::native::PresentedSwaps();
+		if ((swaps & 1) != 0) {
+			ctx.r3.s64 = 1;
+			return;
+		}
+	}
+#endif
 	PPCRegister temp{};
 	// mr r6,r3
 	ctx.r6.u64 = ctx.r3.u64;

@@ -13801,9 +13801,9 @@ loc_823ED080:
 	// beq cr6,0x823ecec4
 	if (ctx.cr6.eq) {
 #if defined(__SWITCH__)
-		RexSwitchSleep(2000000);
+		RexSwitchSleep(8000000);
 #else
-		rex::thread::Sleep(std::chrono::milliseconds(2));
+		rex::thread::Sleep(std::chrono::milliseconds(8));
 #endif
 		goto loc_823ECEC4;
 	}
@@ -13812,9 +13812,9 @@ loc_823ED080:
 	// bne cr6,0x823ecec4
 	if (!ctx.cr6.eq) {
 #if defined(__SWITCH__)
-		RexSwitchSleep(2000000);
+		RexSwitchSleep(8000000);
 #else
-		rex::thread::Sleep(std::chrono::milliseconds(2));
+		rex::thread::Sleep(std::chrono::milliseconds(8));
 #endif
 		goto loc_823ECEC4;
 	}

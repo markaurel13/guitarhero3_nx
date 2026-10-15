@@ -180,6 +180,9 @@ REXCVAR_DEFINE_INT32(sa2_native_edram_alias_mode, 4, "SA2 renderer",
 REXCVAR_DEFINE_BOOL(gh3_performance_mode, false, "GH3",
                     "Performance Mode: black background, no 3D venue (0 = disabled, 1 = enabled)");
 
+REXCVAR_DEFINE_BOOL(gh3_venue_substep, true, "GH3",
+                    "Venue Sub-stepping: updates venue band animations at 30 FPS while highway runs at 60 FPS (0 = disabled, 1 = enabled)");
+
 REXCVAR_DEFINE_INT32(sa2_diag_resolves_from, 0, "SA2",
                      "Diagnostic: logs the raw registers of resolves number N to N+79 (0 = off)");
 // Diagnostic of sa2_gpu_resolve_alias: every resolve and alias event of 40 presented frames from this one (0 = off).
@@ -3752,8 +3755,8 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
   uint64_t edram4_overwrites_ = 0;  // draw binds that used a proven full overwrite
   uint64_t edram4_redirected_ = 0, edram4_redirected_tiles_ = 0, edram4_redirected_no_ = 0;
   std::map<std::string, uint64_t> edram4_stencil_no_reasons_, edram4_depth_no_reasons_;
-  // sa2_cpu_ring_redirect_key: RedirectClearDepthEDRAM4's no() counts by (reason literal, depth info).
-  std::map<std::pair<const char*, uint32_t>, uint64_t> edram4_depth_no_fast_;
+  // sa2_cpu_ring_redirect_key: RedirectClearDepthEDRAM4's no() counts by (reason string, depth info).
+  std::map<std::pair<std::string, uint32_t>, uint64_t> edram4_depth_no_fast_;
   uint64_t edram4_redirected_color_tiles_ = 0;
   // Tiles a redirected clear wrote (by the view the game drew it on) and the view that next pulled them.
   // A redirected clear is identified by its view and its ordinal among that view's clears in the frame (the
@@ -4937,10 +4940,10 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
   bool RedirectClearDepthEDRAM4(const SubmissionDraw& p) {
     if (!REXCVAR_GET(sa2_native_edram4_redirected_clear) || !p.registers || !p.edram_overwrite_rect ||
         !(p.edram_overwrite_slots & 1) || !draws_) return false;
-    const auto no = [&](const char* reason) {
+    const auto no = [&](std::string_view reason) {
       if (g_redirect_key_int.active) {  // folded into the string map when the report is written: same report
         g_redirect_key_int.UseSampled();
-        ++edram4_depth_no_fast_[{reason, p.registers[gr::XE_GPU_REG_RB_DEPTH_INFO]}];
+        ++edram4_depth_no_fast_[{std::string(reason), p.registers[gr::XE_GPU_REG_RB_DEPTH_INFO]}];
         return false;
       }
       ++edram4_depth_no_reasons_[fmt::format("{} (depth info {:08X})", reason,
@@ -4954,7 +4957,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
     const char* color_decline = nullptr;
     if (p.edram_overwrite_slots == 3) {
       if (!PlanClearColor0EDRAM4(p, color_clear, color_decline))
-        return no(fmt::format("also writes color (color 0: {})", color_decline ? color_decline : "declined").c_str());
+        return no(std::string("also writes color (color 0: ") + (color_decline ? color_decline : "declined") + ")");
     } else if (p.edram_overwrite_slots != 1) {
       return no("also writes color");
     }

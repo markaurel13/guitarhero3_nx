@@ -12,6 +12,7 @@
 #include <rex/cvar.h>
 
 REXCVAR_DECLARE(bool, gh3_performance_mode);
+REXCVAR_DECLARE(bool, gh3_venue_substep);
 
 #include <array>
 #include <cstdint>

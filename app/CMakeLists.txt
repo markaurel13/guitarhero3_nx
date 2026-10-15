@@ -24,6 +24,7 @@ set(ME_SOURCES
     src/me/sa2_render_mode.cpp
     src/cpu/sa2_enhancements.cpp
     src/cpu/sa2_gpu_boost.cpp
+    src/sa2_pgo.cpp
     ${REXSDK_DIR}/src/graphics/register_file.cpp
     ${REXSDK_DIR}/src/graphics/format/ucode.cpp
     ${REXSDK_DIR}/src/graphics/pipeline/shader/interpreter.cpp
@@ -69,6 +70,34 @@ set_source_files_properties(
 rexglue_configure_target(gh3 GPU_PLUGINS xenos)
 
 if(REXGLUE_PLATFORM_SWITCH)
+    if(NOT GH3_PGO AND SA2_PGO)
+        set(GH3_PGO "${SA2_PGO}")
+    endif()
+    set(GH3_PGO "" CACHE STRING "Profile-guided optimisation of the Switch build: empty, generate or use")
+    set_property(CACHE GH3_PGO PROPERTY STRINGS "" generate use)
+    set(GH3_PGO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../pgo" CACHE PATH "Folder of the PGO profile (.gcda files)")
+    get_filename_component(_gh3_pgo_dir "${GH3_PGO_DIR}" ABSOLUTE)
+    file(TO_NATIVE_PATH "${_gh3_pgo_dir}" _gh3_pgo_dir)
+    file(TO_NATIVE_PATH "${CMAKE_BINARY_DIR}" _gh3_pgo_prefix)
+    if(GH3_PGO STREQUAL "generate")
+        set(_gh3_pgo "-fprofile-generate=${_gh3_pgo_dir}" "-fprofile-prefix-path=${_gh3_pgo_prefix}"
+                     -fno-profile-values -fprofile-update=single -fprofile-info-section=gcov_info)
+        target_compile_definitions(gh3 PRIVATE SA2_PGO_GENERATE=1)
+    elseif(GH3_PGO STREQUAL "use")
+        if(NOT EXISTS "${GH3_PGO_DIR}")
+            message(FATAL_ERROR "GH3_PGO=use: no profile in ${GH3_PGO_DIR}")
+        endif()
+        set(_gh3_pgo "-fprofile-use=${_gh3_pgo_dir}" "-fprofile-prefix-path=${_gh3_pgo_prefix}" -fprofile-correction
+                     -fno-profile-values -fprofile-partial-training -Wno-missing-profile -Wno-coverage-mismatch)
+    elseif(GH3_PGO)
+        message(FATAL_ERROR "GH3_PGO must be empty, generate or use (got ${GH3_PGO})")
+    endif()
+    if(GH3_PGO)
+        target_compile_options(gh3 PRIVATE ${_gh3_pgo})
+        target_link_options(gh3 PRIVATE ${_gh3_pgo})
+        message(STATUS "gh3: PGO ${GH3_PGO}")
+    endif()
+
     rexglue_switch_add_nro(gh3
         NAME "Guitar Hero III: Legends of Rock"
         AUTHOR "markaurel13, Neversoft"

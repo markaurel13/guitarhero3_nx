@@ -32,6 +32,7 @@
 #include "me/me_native_system.h"
 #include "me/sa2_render_mode.h"
 #include "me/native/sa2_native_targets.h"
+#include "sa2_pgo.h"
 #include <fstream>
 
 class Gh3App : public rex::ReXApp {
@@ -300,13 +301,26 @@ class Gh3App : public rex::ReXApp {
                 trimmed.find("performance_mode = true") != std::string::npos) {
               REXCVAR_SET(gh3_performance_mode, true);
               REXLOG_INFO("[GH3] Config file '{}': gh3_performance_mode enabled (1)", cfg_name);
-              break;
             } else if (trimmed == "0" || trimmed.find("performance_mode=0") != std::string::npos ||
                        trimmed.find("performance_mode = 0") != std::string::npos ||
                        trimmed.find("performance_mode = false") != std::string::npos) {
               REXCVAR_SET(gh3_performance_mode, false);
               REXLOG_INFO("[GH3] Config file '{}': gh3_performance_mode disabled (0)", cfg_name);
-              break;
+            }
+            if (trimmed.find("venue_substep=0") != std::string::npos ||
+                trimmed.find("venue_substep = 0") != std::string::npos ||
+                trimmed.find("venue_substepping=0") != std::string::npos ||
+                trimmed.find("venue_substepping = 0") != std::string::npos ||
+                trimmed.find("venue_substep=false") != std::string::npos) {
+              REXCVAR_SET(gh3_venue_substep, false);
+              REXLOG_INFO("[GH3] Config file '{}': gh3_venue_substep disabled (0)", cfg_name);
+            } else if (trimmed.find("venue_substep=1") != std::string::npos ||
+                       trimmed.find("venue_substep = 1") != std::string::npos ||
+                       trimmed.find("venue_substepping=1") != std::string::npos ||
+                       trimmed.find("venue_substepping = 1") != std::string::npos ||
+                       trimmed.find("venue_substep=true") != std::string::npos) {
+              REXCVAR_SET(gh3_venue_substep, true);
+              REXLOG_INFO("[GH3] Config file '{}': gh3_venue_substep enabled (1)", cfg_name);
             }
           }
         }
@@ -314,6 +328,7 @@ class Gh3App : public rex::ReXApp {
       }
     }
     REXLOG_INFO("[GH3] Active performance mode: {}", REXCVAR_GET(gh3_performance_mode) ? "ENABLED (1, black background 60 FPS)" : "DISABLED (0, normal 3D venue)");
+    REXLOG_INFO("[GH3] Active venue sub-stepping: {}", REXCVAR_GET(gh3_venue_substep) ? "ENABLED (30 FPS band / 60 FPS highway)" : "DISABLED (60 FPS band)");
   }
 
   void OnPreSetup(rex::RuntimeConfig& config) override {
@@ -326,5 +341,16 @@ class Gh3App : public rex::ReXApp {
 
   void OnPostSetup() override {
     sa2::enh::StartReport();
+    sa2::pgo::Start();
+  }
+
+  void OnWindowFocusChanged(bool focused) override {
+    if (!focused) {
+      sa2::pgo::DumpNow();
+    }
+  }
+
+  void OnShutdown() override {
+    sa2::pgo::Stop();
   }
 };
