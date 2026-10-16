@@ -35,6 +35,10 @@
 #include "sa2_pgo.h"
 #include <fstream>
 
+#if defined(__SWITCH__)
+extern "C" void RexSwitchPerfIntervalSwap(unsigned vblanks);
+#endif
+
 class Gh3App : public rex::ReXApp {
  public:
   using rex::ReXApp::ReXApp;
@@ -327,16 +331,22 @@ class Gh3App : public rex::ReXApp {
                        trimmed.find("venue_substepping=1") != std::string::npos ||
                        trimmed.find("venue_substepping = 1") != std::string::npos ||
                        trimmed.find("venue_substep=true") != std::string::npos) {
-              REXCVAR_SET(gh3_venue_substep, true);
-              REXLOG_INFO("[GH3] Config file '{}': gh3_venue_substep enabled (1)", cfg_name);
+              // Forced disabled to guarantee smooth 1:1 note advancement on every frame
+              REXCVAR_SET(gh3_venue_substep, false);
+              REXLOG_INFO("[GH3] Config file '{}': gh3_venue_substep disabled for note cadence", cfg_name);
             }
           }
         }
         break;
       }
     }
+    REXCVAR_SET(gh3_venue_substep, false);
+    if (REXCVAR_GET(switch_exclusive_core) <= 0) {
+      REXCVAR_SET(switch_exclusive_core, 30);
+    }
     REXLOG_INFO("[GH3] Active game mode: {}", REXCVAR_GET(gh3_performance_mode) ? "PERFORMANCE (60 FPS, optimized 3D venue)" : "QUALITY (30 FPS rock-solid, full 3D venue & shadows)");
-    REXLOG_INFO("[GH3] Active venue sub-stepping: {}", REXCVAR_GET(gh3_venue_substep) ? "ENABLED (30 FPS band / 60 FPS highway)" : "DISABLED (60 FPS band)");
+    REXLOG_INFO("[GH3] Active venue sub-stepping: DISABLED (full frame note cadence)");
+    REXLOG_INFO("[GH3] Active switch_exclusive_core: {}", REXCVAR_GET(switch_exclusive_core));
   }
 
   void OnPreSetup(rex::RuntimeConfig& config) override {
@@ -350,6 +360,12 @@ class Gh3App : public rex::ReXApp {
   void OnPostSetup() override {
     sa2::enh::StartReport();
     sa2::pgo::Start();
+#if defined(__SWITCH__)
+    // 0 = immediate/natural queue, letting the guest engine pace its own 30/60 FPS flips
+    RexSwitchPerfIntervalSwap(0);
+    REXLOG_INFO("[GH3] Display swap interval set to 0 (natural frame queue)");
+#endif
+
   }
 
   void OnWindowFocusChanged(bool focused) override {

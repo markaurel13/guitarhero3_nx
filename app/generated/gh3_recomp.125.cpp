@@ -25032,11 +25032,6 @@ DEFINE_REX_FUNC(sub_826E1F90) {
 	REX_STORE_U8(ctx.r31.u32 + 264, ctx.r11.u8);
 loc_826E1FAC:
 	REX_LOOP_BARRIER();
-#if defined(__SWITCH__)
-	if (REX_LOAD_U32(ctx.r31.u32 + 284) == 0) {
-		RexSwitchSleep(2000000);
-	}
-#endif
 	// lwz r3,276(r31)
 	ctx.r3.u64 = REX_LOAD_U32(ctx.r31.u32 + 276);
 	// cmplwi cr6,r3,0
@@ -25097,14 +25092,7 @@ loc_826E2008:
 	// cmplwi cr6,r11,0
 	ctx.cr6.compare<uint32_t>(ctx.r11.u32, 0, ctx.xer);
 	// bne cr6,0x826e1fac
-	if (!ctx.cr6.eq) {
-#if defined(__SWITCH__)
-		RexSwitchSleep(3500000);
-#else
-		rex::thread::Sleep(std::chrono::microseconds(3500));
-#endif
-		goto loc_826E1FAC;
-	}
+	if (!ctx.cr6.eq) goto loc_826E1FAC;
 	// li r4,0
 	ctx.r4.s64 = 0;
 	// lwz r3,280(r31)

@@ -79,7 +79,13 @@
 # O varrimento nao a propoe (nao ha ponteiro para ela nas regioes de dados) e o
 # jogo so la chega depois de ver um comando na slot 0, ja passado o carregamento
 # de saves. Com mnk_mode=false o codigo nunca era alcancado.
+"0x825E9B08" = { end = 0x825E9B20 }  # 6 instrucoes, termina em bctr
 "0x825E9B20" = { end = 0x825E9B44 }  # 9 instrucoes, termina em bctr
+"0x825E9B48" = { end = 0x825E9B60 }  # 6 instrucoes, termina em bctr
+"0x825E9B60" = { end = 0x825E9B78 }  # 6 instrucoes, termina em bctr
+"0x825E9B78" = { end = 0x825E9B90 }  # 6 instrucoes, termina em bctr
+"0x825E9B90" = { end = 0x825E9BA8 }  # 6 instrucoes, termina em bctr
+"0x825E9BA8" = { end = 0x825E9BC0 }  # 6 instrucoes, termina em bctr
 
 # --- bloco de comparacao/laco, o unico grande -------------------------------
 # Comeca em rlwinm/cmpli/bc (sem prologo: e um alvo de salto, nao uma funcao

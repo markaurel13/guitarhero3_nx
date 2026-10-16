@@ -1531,7 +1531,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
     rex::system::X_VIDEO_MODE mode;
     rex::kernel::xboxkrnl::VdQueryVideoMode(&mode);
     const double base_hz = std::max(1.0, double(float(mode.refresh_rate)));
-    const double hz = REXCVAR_GET(gh3_performance_mode) ? base_hz : 30.0;
+    const double hz = base_hz;
     const auto interval =
         std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / hz));
     auto next = Clock::now() + interval;

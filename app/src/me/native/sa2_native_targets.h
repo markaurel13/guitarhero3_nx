@@ -13,6 +13,7 @@
 
 REXCVAR_DECLARE(bool, gh3_performance_mode);
 REXCVAR_DECLARE(bool, gh3_venue_substep);
+REXCVAR_DECLARE(int32_t, switch_exclusive_core);
 
 #include <array>
 #include <cstdint>

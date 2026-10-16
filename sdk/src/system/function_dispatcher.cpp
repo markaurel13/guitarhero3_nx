@@ -34,6 +34,103 @@ FunctionDispatcher* GetBoundFunctionDispatcher() {
 
 }  // namespace
 
+static PPCRegister* GetGPR(PPCContext& ctx, uint32_t idx) {
+  switch (idx) {
+    case 0: return &ctx.r0;
+    case 1: return &ctx.r1;
+    case 2: return &ctx.r2;
+    case 3: return &ctx.r3;
+    case 4: return &ctx.r4;
+    case 5: return &ctx.r5;
+    case 6: return &ctx.r6;
+    case 7: return &ctx.r7;
+    case 8: return &ctx.r8;
+    case 9: return &ctx.r9;
+    case 10: return &ctx.r10;
+    case 11: return &ctx.r11;
+    case 12: return &ctx.r12;
+    case 13: return &ctx.r13;
+    case 14: return &ctx.r14;
+    case 15: return &ctx.r15;
+    case 16: return &ctx.r16;
+    case 17: return &ctx.r17;
+    case 18: return &ctx.r18;
+    case 19: return &ctx.r19;
+    case 20: return &ctx.r20;
+    case 21: return &ctx.r21;
+    case 22: return &ctx.r22;
+    case 23: return &ctx.r23;
+    case 24: return &ctx.r24;
+    case 25: return &ctx.r25;
+    case 26: return &ctx.r26;
+    case 27: return &ctx.r27;
+    case 28: return &ctx.r28;
+    case 29: return &ctx.r29;
+    case 30: return &ctx.r30;
+    case 31: return &ctx.r31;
+    default: return nullptr;
+  }
+}
+
+static void DynamicThunkExecutor(PPCContext& ctx, uint8_t* base) {
+  uint32_t pc = ctx.last_indirect_target;
+  Runtime* runtime = Runtime::instance();
+  if (!runtime || !runtime->memory()) {
+    REX_FATAL("Call to invalid or unregistered function at guest address 0x{:08X}", pc);
+    return;
+  }
+  uint8_t* host_ptr = runtime->memory()->TranslateVirtual(pc);
+  if (!host_ptr) {
+    REX_FATAL("Call to invalid or unregistered function at guest address 0x{:08X}", pc);
+    return;
+  }
+
+  for (int step = 0; step < 32; ++step) {
+    uint32_t insn = rex::memory::load_and_swap<uint32_t>(host_ptr + step * 4);
+    if (insn == 0x4E800020) {  // blr
+      return;
+    }
+    if (insn == 0x4E800420) {  // bctr
+      ctx.last_indirect_target = ctx.ctr.u32;
+      PPCFunc* target = ResolveIndirectFunction(ctx.ctr.u32);
+      target(ctx, base);
+      return;
+    }
+    if ((insn & 0xFC000000) == 0x80000000) {  // lwz rD, d(rA)
+      uint32_t rD = (insn >> 21) & 0x1F;
+      uint32_t rA = (insn >> 16) & 0x1F;
+      int16_t d = static_cast<int16_t>(insn & 0xFFFF);
+      PPCRegister* regD = GetGPR(ctx, rD);
+      PPCRegister* regA = (rA != 0) ? GetGPR(ctx, rA) : nullptr;
+      uint32_t ea = (regA ? regA->u32 : 0) + d;
+      if (regD) {
+        regD->u64 = rex::memory::load_and_swap<uint32_t>(base + ea);
+      }
+      continue;
+    }
+    if (insn == 0x7D6903A6) {  // mtctr r11
+      ctx.ctr.u64 = ctx.r11.u64;
+      continue;
+    }
+    if ((insn & 0xFC0007FE) == 0x7C000378) {  // or rA, rS, rB (mr rA, rS when rS == rB)
+      uint32_t rS = (insn >> 21) & 0x1F;
+      uint32_t rA = (insn >> 16) & 0x1F;
+      uint32_t rB = (insn >> 11) & 0x1F;
+      if (rS == rB) {
+        PPCRegister* regA = GetGPR(ctx, rA);
+        PPCRegister* regS = GetGPR(ctx, rS);
+        if (regA && regS) {
+          regA->u64 = regS->u64;
+        }
+        continue;
+      }
+    }
+    REX_FATAL("Unhandled instruction 0x{:08X} in dynamic thunk at 0x{:08X}", insn, pc + step * 4);
+    return;
+  }
+  REX_FATAL("Dynamic thunk at 0x{:08X} exceeded 32 instructions without termination", pc);
+}
+
 static void InvalidFunctionTrap(PPCContext& ctx, uint8_t* /*base*/) {
   REX_FATAL("Call to invalid or unregistered function at guest address 0x{:08X}",
             ctx.last_indirect_target);
@@ -49,8 +146,23 @@ PPCFunc* ResolveIndirectFunction(uint32_t guest_address) {
     return func;
   }
 
+  // Dynamic fallback for any uncompiled vtable thunk or stub
+  Runtime* runtime = Runtime::instance();
+  if (runtime && runtime->memory()) {
+    uint8_t* host_ptr = runtime->memory()->TranslateVirtual(guest_address);
+    if (host_ptr) {
+      uint32_t insn0 = rex::memory::load_and_swap<uint32_t>(host_ptr);
+      if (insn0 == 0x4E800020 || (insn0 & 0xFC000000) == 0x80000000) {
+        REXLOG_WARN("[Dispatcher] Resolving missing thunk dynamically at 0x{:08X}", guest_address);
+        dispatcher->SetFunction(guest_address, &DynamicThunkExecutor);
+        return &DynamicThunkExecutor;
+      }
+    }
+  }
+
   return &InvalidFunctionTrap;
 }
+
 
 FunctionDispatcher::FunctionDispatcher(rex::memory::Memory* memory, ExportResolver* export_resolver)
     : memory_(memory), export_resolver_(export_resolver) {}

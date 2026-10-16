@@ -39461,6 +39461,10 @@ void gh3_RegisterFunctions(rex::runtime::IModuleRegistrar* registrar) {
   registrar->SetFunction(0x825E9B08, sub_825E9B08);
   registrar->SetFunction(0x825E9B20, sub_825E9B20);
   registrar->SetFunction(0x825E9B48, sub_825E9B48);
+  registrar->SetFunction(0x825E9B60, sub_825E9B60);
+  registrar->SetFunction(0x825E9B78, sub_825E9B78);
+  registrar->SetFunction(0x825E9B90, sub_825E9B90);
+  registrar->SetFunction(0x825E9BA8, sub_825E9BA8);
   registrar->SetFunction(0x825E9BC0, sub_825E9BC0);
   registrar->SetFunction(0x825E9C78, sub_825E9C78);
   registrar->SetFunction(0x825E9CC8, sub_825E9CC8);

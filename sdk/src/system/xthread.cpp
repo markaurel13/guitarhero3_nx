@@ -366,6 +366,9 @@ int SwitchPriorityFor(bool guest_thread, std::string_view name) {
     if (name.starts_with("Main")) {
       return 0x2E;  // 46: Horizon priority for main game thread (above background 0x3B workers!)
     }
+    if (name.find("824E4FF8") != std::string_view::npos) {
+      return 0x2D;  // 45: Horizon priority for render workers XT0044/XT0048 (above 0x2E Main and 0x3B workers)
+    }
     return REX_SWITCH_PRIO_GUEST;
   }
   // set_name() stores the name with the handle appended ("Audio Worker (F8000014)"),
