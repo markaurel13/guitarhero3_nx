@@ -384,6 +384,7 @@ class DrawsVulkan {
   virtual StatsDraws Stats() const = 0;
   // Draws recorded since start-up; the render target code counts those that fall between two copies.
   virtual uint64_t Drawn() const = 0;
+  virtual uint64_t Frame() const { return 0; }
   // Waits for the copy thread to finish the pending vertex copies (sa2_native_uploads_thread).
   virtual void WaitUploads() = 0;
   // Vertex copies queued and not done yet (only to measure the fences).

@@ -33,7 +33,7 @@
 sa2_renderer_native = true
 # Escala de render: 360p en modo portatil (640x360, garantiza 60 FPS en GPU incluso con escenario 3D completo)
 sa2_render_height_handheld = 360
-sa2_render_height_docked = 720
+sa2_render_height_docked = 540
 sa2_gpu_boost = true
 sa2_shader_misses = "shader_misses"
 sa2_native_logical_resolved_size = false
@@ -59,15 +59,15 @@ sa2_deferred_native_fast = false
 sa2_deferred_native_batch = 16
 sa2_deferred_native_update = false
 sa2_native_deferred_worker_core = -1
-switch_exclusive_core = 0
+switch_exclusive_core = 10
 sa2_cpu_main_thread_priority = true
 sa2_main_thread_priority = 46
 sa2_native_fingerprint_mode = 2
 sa2_native_indices_cache = true
 sa2_native_pipelines_prewarm = true
 sa2_native_texture_interval_max = 256
-sa2_native_fingerprints_kb_frame = 2048
-sa2_native_dedupe_max_fingerprint = 16384
+sa2_native_fingerprints_kb_frame = 256
+sa2_native_dedupe_max_fingerprint = 1
 thread_signal_skip_idle = true
 sa2_native_slots_work = 3
 # EDRAM mode 4 activo con filtro nativo (elimina 8900+ pases color->depth sin romper depth->color para iluminacion del fondo)
@@ -115,6 +115,9 @@ sa2_io_window_kb = 2048        # Ventana de lectura anticipada de 2 MB (permite 
 sa2_io_windows_max = 16
 sa2_io_ranges_min_kb = 64      # Piso de cache reducido a 64 KB para almacenar bloques de 128 KB
 sa2_io_ranges_mb = 128         # Cap de cache en RAM elevado a 128 MB
+audio_maxqframes = 16          # Capacidad de semaforo de audio (85 ms cushion)
+audio_switch_frames_in_queue = 10  # Frames encolados en Switch antes de audout (53 ms cushion sin underruns)
+audio_switch_pump = true
 
 log_verbose = false
 log_level = "info"

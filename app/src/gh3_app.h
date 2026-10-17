@@ -36,7 +36,8 @@
 #include <fstream>
 
 #if defined(__SWITCH__)
-extern "C" void RexSwitchPerfIntervalSwap(unsigned vblanks);
+extern "C" void RexSwitchPerfIntervalSwap(int vblanks);
+static inline int s_override_swap_interval = -1;
 #endif
 
 class Gh3App : public rex::ReXApp {
@@ -335,15 +336,34 @@ class Gh3App : public rex::ReXApp {
               REXCVAR_SET(gh3_venue_substep, false);
               REXLOG_INFO("[GH3] Config file '{}': gh3_venue_substep disabled for note cadence", cfg_name);
             }
+#if defined(__SWITCH__)
+            if (trimmed.find("swap_interval=0") != std::string::npos ||
+                trimmed.find("swap_interval = 0") != std::string::npos) {
+              s_override_swap_interval = 0;
+              REXLOG_INFO("[GH3] Config file '{}': swap_interval forced to 0 (unlocked)", cfg_name);
+            } else if (trimmed.find("swap_interval=1") != std::string::npos ||
+                       trimmed.find("swap_interval = 1") != std::string::npos) {
+              s_override_swap_interval = 1;
+              REXLOG_INFO("[GH3] Config file '{}': swap_interval forced to 1 (60 FPS)", cfg_name);
+            } else if (trimmed.find("swap_interval=2") != std::string::npos ||
+                       trimmed.find("swap_interval = 2") != std::string::npos) {
+              s_override_swap_interval = 2;
+              REXLOG_INFO("[GH3] Config file '{}': swap_interval forced to 2 (30 FPS)", cfg_name);
+            }
+#endif
           }
         }
         break;
       }
     }
-    REXCVAR_SET(gh3_venue_substep, false);
-    if (REXCVAR_GET(switch_exclusive_core) <= 0) {
-      REXCVAR_SET(switch_exclusive_core, 30);
+    if (REXCVAR_GET(switch_exclusive_core) < 0) {
+      REXCVAR_SET(switch_exclusive_core, 10);
     }
+#if defined(__SWITCH__)
+    rex::cvar::SetFlagByName("sa2_vsync_relaxed", "true");
+    rex::cvar::SetFlagByName("sa2_native_dedupe_max_fingerprint", "1");
+    rex::cvar::SetFlagByName("sa2_native_fingerprints_kb_frame", "256");
+#endif
     REXLOG_INFO("[GH3] Active game mode: {}", REXCVAR_GET(gh3_performance_mode) ? "PERFORMANCE (60 FPS, optimized 3D venue)" : "QUALITY (30 FPS rock-solid, full 3D venue & shadows)");
     REXLOG_INFO("[GH3] Active venue sub-stepping: DISABLED (full frame note cadence)");
     REXLOG_INFO("[GH3] Active switch_exclusive_core: {}", REXCVAR_GET(switch_exclusive_core));
@@ -361,11 +381,15 @@ class Gh3App : public rex::ReXApp {
     sa2::enh::StartReport();
     sa2::pgo::Start();
 #if defined(__SWITCH__)
-    // 0 = immediate/natural queue, letting the guest engine pace its own 30/60 FPS flips
-    RexSwitchPerfIntervalSwap(0);
-    REXLOG_INFO("[GH3] Display swap interval set to 0 (natural frame queue)");
+    // Display swap interval:
+    // 0 = NON-BLOCKING TRIPLE BUFFER (Smooth, 0 ms acquire latency, avoids the 15 FPS collapse on stock clocks)
+    // 1 = 60 FPS VSYNC
+    // 2 = 30 FPS VSYNC (only if frame time < 31ms)
+    int target_interval = (s_override_swap_interval >= 0) ? s_override_swap_interval : 0;
+    RexSwitchPerfIntervalSwap(target_interval);
+    REXLOG_INFO("[GH3] Display swap interval set to {} ({})",
+                target_interval, target_interval == 0 ? "NON-BLOCKING TRIPLE BUFFER (smooth 60 Hz nvnflinger compositor)" : (target_interval == 1 ? "60 FPS VSYNC" : "30 FPS VSYNC"));
 #endif
-
   }
 
   void OnWindowFocusChanged(bool focused) override {

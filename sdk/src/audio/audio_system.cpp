@@ -26,7 +26,7 @@
 #include <rex/cvar.h>
 
 REXCVAR_DEFINE_INT32(
-    audio_maxqframes, 8, "Audio",
+    audio_maxqframes, 16, "Audio",
     "Max buffered audio frames (range 4-64). Lower reduces latency but may cause stuttering.");
 REXCVAR_DEFINE_BOOL(audio_diag_critical_priority, false, "Audio",
                     "Diagnostic (PC only): Audio Worker and XMA Decoder at time-critical priority, "

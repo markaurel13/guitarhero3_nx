@@ -261,7 +261,11 @@ SA2_ENHANCEMENT(g_note_shader_pair, sa2_cpu_note_shader_pair, sa2::enh::kCpu, tr
 // versions failed the PC test with a slow ring (18 ms of ring work per frame; fixed vsync: 30 fps): a vblank at the
 // game's VdSwap call, at the ring's XE_SWAP, or for ANY unmet wait (a wait on the game thread mid-frame took the
 // vblank before the flag was set, and the flip waited a full refresh more: 13-29 fps).
+#if REX_PLATFORM_SWITCH
 SA2_ENHANCEMENT(g_vsync_relaxed, sa2_vsync_relaxed, sa2::enh::kNonCpu, true,
+#else
+SA2_ENHANCEMENT(g_vsync_relaxed, sa2_vsync_relaxed, sa2::enh::kNonCpu, true,
+#endif
                 "Relaxed vsync: the guest's vblank follows its swaps (one per swap, at most one per 1/60 s; the regular "
                 "1/60 s ticks while it does not swap), so a frame that misses 60 fps is shown when it is ready instead "
                 "of at the next vblank: no fall from 60 straight to 30");

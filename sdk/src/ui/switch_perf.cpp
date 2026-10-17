@@ -372,18 +372,25 @@ void ApplyExclusiveCore(FILE* f, const std::vector<size_t>& order) {
   }
   const u64 bit = 1ull << k;
   if (!pinned) {
-    for (size_t i : order) {
-      const Slot& s = g_slots[i];
-      if (s.handle.load() == envGetMainThreadHandle()) continue;
-      if (std::strstr(s.name, "XT") == nullptr && std::strstr(s.name, "Main") == nullptr &&
-          std::strstr(s.name, "XThread") == nullptr) continue;
-      if (s.cpu < 5.0 && order.size() > 2) break;
-      if (R_SUCCEEDED(svcSetThreadCoreMask(s.handle.load(), k, bit))) {
-        pinned = s.handle.load();
-        if (f) std::fprintf(f, "-- exclusive core %d for \"%s\" (CPU %.1f%%)\n", k, s.name, s.cpu);
-        std::fprintf(stderr, "[perf] Exclusive core %d for \"%s\" (CPU %.1f%%)\n", k, s.name, s.cpu);
+    // Prioritize the guest "Main" thread first so a spinning background XT worker never steals Core K from Main.
+    for (int pass = 0; pass < 2 && !pinned; ++pass) {
+      for (size_t i : order) {
+        const Slot& s = g_slots[i];
+        if (s.handle.load() == envGetMainThreadHandle()) continue;
+        if (pass == 0) {
+          if (std::strstr(s.name, "Main") == nullptr) continue;
+        } else {
+          if (std::strstr(s.name, "XT") == nullptr && std::strstr(s.name, "Main") == nullptr &&
+              std::strstr(s.name, "XThread") == nullptr) continue;
+        }
+        if (s.cpu < 5.0 && order.size() > 2) break;
+        if (R_SUCCEEDED(svcSetThreadCoreMask(s.handle.load(), k, bit))) {
+          pinned = s.handle.load();
+          if (f) std::fprintf(f, "-- exclusive core %d for \"%s\" (CPU %.1f%%)\n", k, s.name, s.cpu);
+          std::fprintf(stderr, "[perf] Exclusive core %d for \"%s\" (CPU %.1f%%)\n", k, s.name, s.cpu);
+        }
+        break;
       }
-      break;
     }
     if (!pinned) return;
   }
@@ -1226,13 +1233,13 @@ void __wrap_armDCacheClean(void* addr, size_t size) {
  * Warning: it is 0 and must stay that way. Measured: with the current frame time, setting 2 sends
  * 22 % of the frames to 66.7 ms. It only makes sense with a median frame time below 31 ms.
  */
-std::atomic<unsigned> g_interval_swap{0};
+std::atomic<int> g_interval_swap{-1};
 
 Result __wrap_nwindowQueueBuffer(NWindow* nw, s32 slot, const NvMultiFence* fence) {
   const u64 from = armGetSystemTick();
-  const unsigned request = g_interval_swap.load(std::memory_order_relaxed);
-  if (request != 0 && nw != nullptr && nw->swap_interval != request) {
-    nwindowSetSwapInterval(nw, request);
+  const int request = g_interval_swap.load(std::memory_order_relaxed);
+  if (request >= 0 && nw != nullptr && nw->swap_interval != (u32)request) {
+    nwindowSetSwapInterval(nw, (u32)request);
   }
   const Result rc = __real_nwindowQueueBuffer(nw, slot, fence);
   Note(kQueueBuffer, from);
@@ -1331,8 +1338,8 @@ void RexSwitchPerfResolution(unsigned w, unsigned h) {
   g_resolution.store(((w & 0xFFFF) << 16) | (h & 0xFFFF), std::memory_order_relaxed);
 }
 
-// See g_interval_swap, next to the nwindowQueueBuffer wrapper. 0 = touch nothing (the normal case).
-void RexSwitchPerfIntervalSwap(unsigned vblanks) {
+// -1 = touch nothing, 0 = non-blocking triple buffer, 1 = 60 Hz VSync, 2 = 30 Hz VSync.
+void RexSwitchPerfIntervalSwap(int vblanks) {
   g_interval_swap.store(vblanks, std::memory_order_relaxed);
 }
 

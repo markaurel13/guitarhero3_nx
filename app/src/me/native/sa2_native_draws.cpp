@@ -2688,8 +2688,13 @@ class DrawsVulkanImpl final : public DrawsVulkan {
     if (edram_mode != uint32_t(xenos::EdramMode::kColorDepth) && edram_mode != 5) {
       return Reject(1, "EDRAM mode without color or depth");
     }
+    // Performance Mode: skip dynamic shadow map depth passes (base 0x000 in depth-only Mode 5).
+    // The scene Z-prepass is at base 0x2D0 and must NOT be skipped (to preserve depth testing and avoid the white veil).
     if (REXCVAR_GET(gh3_performance_mode) && edram_mode == 5) {
-      return true;
+      const uint32_t depth_base = r[gr::XE_GPU_REG_RB_DEPTH_INFO] & 0xFFF;
+      if (depth_base == 0) {
+        return true;
+      }
     }
     // Mode 5 (depth only): the Xenos does not run the pixel shader (IsPixelShaderNeededWithRasterization). Without a PS there are no textures, pixel constants or alpha test,
     // and the pipeline has no fragment stage. The shadow passes work this way, and some arrive with the PS
@@ -5920,6 +5925,7 @@ class DrawsVulkanImpl final : public DrawsVulkan {
   }
 
   uint64_t Drawn() const override { return drawn_; }
+  uint64_t Frame() const override { return frame_; }
 
   // sa2_native_textures_mb_max: with the texture cache above the limit, evict the textures unused for
   // the longest until it drops to 75 %, at most once every 60 frames.
