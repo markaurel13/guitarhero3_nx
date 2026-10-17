@@ -1613,7 +1613,8 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       // From depth: the copy goes to a resolved texture with the host depth
       // format, which the draws sample as k_24_8. With a depth source no color
       // is cleared (the SDK's IsClearingColor).
-      const bool will_clear = ((control >> 9) & 0x1) && clear_depth_;
+      const bool skip_shadow_depth = REXCVAR_GET(gh3_performance_mode) && (reg.rb_depth_info & 0xFFF) == 0;
+      const bool will_clear = ((control >> 9) & 0x1) && clear_depth_ && !skip_shadow_depth;
       if (do_copy) {
         CopyDepth(reg, pitch, will_clear);
       }
@@ -1621,6 +1622,10 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
         ClearDepth(reg, pitch);
       }
       return !edram4_operation_failed_;
+    }
+    if (REXCVAR_GET(gh3_performance_mode) && do_copy && reg.rb_depth_info == 0x00000080u &&
+        (reg.rb_copy_dest_pitch & 0x3FFF) > 0 && (reg.rb_copy_dest_pitch & 0x3FFF) <= 128) {
+      return true;
     }
     const uint32_t info_color = reg.rb_color_info[source];
     const uint32_t color_format = (info_color >> 16) & 0xF;
@@ -2131,13 +2136,14 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       failure("depth resolve source allocation/format failure");
       return;
     }
+    const bool skip_shadow_depth = REXCVAR_GET(gh3_performance_mode) && (info & 0xFFF) == 0;
     if (mode4) {
       if (!Record()) {
         failure("depth resolve cannot begin recording", depth);
         return;
       }
       edram4_reason_ = 3;
-      if (!SynchronizeEDRAM4(*depth,
+      if (!skip_shadow_depth && !SynchronizeEDRAM4(*depth,
           VkRect2D{{x0, y0}, {uint32_t(x1 - x0), uint32_t(y1 - y0)}})) {
         failure("depth resolve source synchronization failed", depth);
         return;
@@ -2210,6 +2216,10 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
     Prepare(resolved->image);
     if (mode4 && (!depth->prepared || !resolved->image.prepared)) {
       failure("depth resolve source/destination initialization failure", depth);
+      return;
+    }
+    if (skip_shadow_depth && resolved->revision > 0 && resolved->image.prepared) {
+      ++copies_;
       return;
     }
     NoteAreaUtil(*depth, y1);  // the area the game really resolves
@@ -2801,7 +2811,16 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
   bool Draw(const SubmissionDraw& submission) override {
     depth_raster_grid_eligible_ = false;
     if (submission.registers) {
-      const uint32_t raw_msaa = (submission.registers[gr::XE_GPU_REG_RB_SURFACE_INFO] >> 16) & 3;
+      const uint32_t* r = submission.registers;
+      if (REXCVAR_GET(gh3_performance_mode)) {
+        if ((r[gr::XE_GPU_REG_RB_MODECONTROL] & 0x7) == 5 && (r[gr::XE_GPU_REG_RB_DEPTH_INFO] & 0xFFF) == 0) {
+          return true;
+        }
+        if (submission.vs && submission.vs->number == 1527 && r[gr::XE_GPU_REG_RB_DEPTH_INFO] == 0x00000080u) {
+          return true;
+        }
+      }
+      const uint32_t raw_msaa = (r[gr::XE_GPU_REG_RB_SURFACE_INFO] >> 16) & 3;
       msaa_edram_actual_ = (raw_msaa == 1 && REXCVAR_GET(sa2_native_force_1x_msaa)) ? 0 : raw_msaa;
     }
     const bool mode4 = REXCVAR_GET(sa2_native_edram_alias_mode) == 4;

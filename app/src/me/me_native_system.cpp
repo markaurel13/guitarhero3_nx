@@ -74,6 +74,7 @@ bool Start(const char* path_template);  // banjo_renderdoc.cpp
 bool End();
 }
 extern "C" uint32_t g_banjo_last_reject_cause;  // sa2_native_draws.cpp (C linkage)
+REXCVAR_DECLARE(bool, gh3_performance_mode);
 
 // banjo-nx: defined here (masseffect-nx defined it in me_audio_hooks.cpp, which hooks Mass Effect's audio).
 REXCVAR_DEFINE_INT32(sa2_diag_ring_swap_delay_us, 0, "SA2",
@@ -2034,6 +2035,12 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
           if (trace_phase_ == 1) TraceCopy();
           Copy();
         } else {
+          // Performance Mode: early-out dynamic shadow map depth passes (base 0x000 in depth-only Mode 5)
+          // before PairDraw(), Draw(), and EDRAM4 tile synchronization/publication.
+          if (REXCVAR_GET(gh3_performance_mode) && (Register(kRegRbModeControl) & 0x7) == 5 &&
+              (Register(rex::graphics::XE_GPU_REG_RB_DEPTH_INFO) & 0xFFF) == 0) {
+            break;
+          }
           ++draws_;
           if (depth > 0) ++draws_indirect_;
           PairDraw();

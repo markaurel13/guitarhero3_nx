@@ -362,6 +362,8 @@ class Gh3App : public rex::ReXApp {
     rex::cvar::SetFlagByName("sa2_vsync_relaxed", "false");
     rex::cvar::SetFlagByName("sa2_native_dedupe_max_fingerprint", "1");
     rex::cvar::SetFlagByName("sa2_native_fingerprints_kb_frame", "256");
+    rex::cvar::SetFlagByName("sa2_native_edram4_clear_color0", "true");
+    rex::cvar::SetFlagByName("sa2_native_resolved_read_texels", "0");
 #endif
     REXLOG_INFO("[GH3] Active game mode: {}", REXCVAR_GET(gh3_performance_mode) ? "PERFORMANCE (60 FPS, optimized 3D venue)" : "QUALITY (30 FPS rock-solid, full 3D venue & shadows)");
     REXLOG_INFO("[GH3] Active venue sub-stepping: DISABLED (full frame note cadence)");
