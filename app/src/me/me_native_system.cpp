@@ -1466,8 +1466,8 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
     NotifyRingProgress();
   }
 
-  // sa2_vsync_relaxed: no request for this long after a vblank and the regular ticks resume (loading screens).
-  static constexpr auto kVsyncRelaxedGrace = std::chrono::milliseconds(50);
+  // sa2_vsync_relaxed: regular ticks cadence is interval (16.67 ms at 60 Hz). Never delay VBlank by 50 ms!
+  static constexpr auto kVsyncRelaxedGrace = std::chrono::microseconds(16667);
 
   // Every vblank interrupt (not the swaps, which bump counter_ too): their count and the time of the last one, for
   // FlipWaitEnded.
@@ -1558,14 +1558,14 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
         // asking: the regular ticks once the grace period ran out. The times are the vblanks' slots (when each was
         // due or asked for), not when this thread woke up: on time, the vblanks stay on the 1/60 s grid (PC: timing
         // from the wake-ups added their latency to every frame, 57.5 fps instead of 60).
-        const auto earliest = last_vblank + interval;
-        const auto deadline = last_vblank + (idle ? interval : kVsyncRelaxedGrace);
+        const auto deadline = last_vblank + interval;
         bool wanted = false;
         {
           std::unique_lock<std::mutex> lock(relaxed_mutex_);
           while (active_.load(std::memory_order_acquire)) {
             const auto now = Clock::now();
             wanted = vblank_wanted_.load(std::memory_order_acquire);
+            const auto earliest = last_vblank + (wanted ? std::chrono::milliseconds(1) : interval);
             if ((wanted && now >= earliest) || now >= deadline) break;
             const auto until = wanted ? std::min(earliest, deadline) : deadline;
             relaxed_cv_.wait_for(lock, std::min<Clock::duration>(until - now, std::chrono::milliseconds(50)));
@@ -1573,14 +1573,9 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
         }
         if (!active_.load(std::memory_order_acquire)) break;
         const auto now = Clock::now();
-        if (wanted && now >= earliest) {
-          const auto asked = Clock::time_point(Clock::duration(vblank_asked_.load(std::memory_order_acquire)));
-          if (asked > earliest) {  // a late frame, shown when ready instead of at the next 1/60 s
-            last_vblank = std::min(asked, now);
-            if (asked - earliest > std::chrono::microseconds(500)) g_vsync_relaxed.Use();
-          } else {
-            last_vblank = earliest;
-          }
+        if (wanted) {
+          last_vblank = now;
+          g_vsync_relaxed.Use();
           idle = false;
         } else {
           last_vblank = now - deadline > std::chrono::milliseconds(250) ? now : deadline;
@@ -2047,21 +2042,15 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
           Copy();
         } else {
           // Performance Mode: skip expensive draws that produce no visible output.
-          {
-            // Diagnostic: histogram of draws by (edram mode, depth info, color info 0, color mask).
-            const uint64_t key = (uint64_t(Register(kRegRbModeControl) & 0x7) << 56) |
-                (uint64_t(Register(rex::graphics::XE_GPU_REG_RB_DEPTH_INFO) & 0x1FFFF) << 32) |
-                (uint64_t(Register(rex::graphics::XE_GPU_REG_RB_COLOR_INFO) & 0xFFFF) << 16) |
-                (Register(rex::graphics::XE_GPU_REG_RB_COLOR_MASK) & 0xFFFF);
-            ++draw_histogram_[key];
-          }
           if (REXCVAR_GET(gh3_performance_mode)) {
             const uint32_t edram_mode = Register(kRegRbModeControl) & 0x7;
             const uint32_t color_mask = Register(rex::graphics::XE_GPU_REG_RB_COLOR_MASK) & 0xFFFF;
             const uint32_t depth_base = Register(rex::graphics::XE_GPU_REG_RB_DEPTH_INFO) & 0xFFF;
-            // (1) Depth-only shadow passes (mode 5, base 0x000): ~42 draws/Swap.
-            if (edram_mode == 5 && depth_base == 0) break;
-            // (2) Depth pre-pass: mode 4, color writes fully disabled (mask 0x0000), no color RT configured.
+            // (1) Depth-only shadow passes (mode 5): skip in performance mode (~50 draws/Swap).
+            if (edram_mode == 5) break;
+            // (2) Character shadow passes rendering to depth base 0x080 (~64 draws/Swap).
+            if (depth_base == 0x080) break;
+            // (3) Depth pre-pass: mode 4, color writes fully disabled (mask 0x0000), no color RT configured.
             //     These account for ~5000-6600 draws/Swap and ~25-34 ms of ring-thread work per frame.
             //     The Switch GPU (Adreno) has hardware HSR so the explicit Z pre-pass is entirely redundant.
             //     The real shaded draw that follows writes depth again with Z-test+Z-write, so depth is correct.
@@ -2416,7 +2405,6 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
   uint64_t direct_pairs_used_ = 0, direct_pairs_checked_ = 0, direct_pairs_table_missed_ = 0;
   // The ring thread's time in its parse loop and, of that, in WAIT_REG_MEM waits for the game (Report).
   uint64_t ring_busy_ns_ = 0, ring_wait_ns_ = 0;
-  std::unordered_map<uint64_t, uint64_t> draw_histogram_;
   uint64_t report_ring_busy_ns_ = 0, report_ring_wait_ns_ = 0, report_ring_swaps_ = 0, report_ring_draws_ = 0;
 
   uint32_t Register(uint32_t index) const { return index < kRegisterCount ? registers_[index] : 0; }
@@ -3858,18 +3846,6 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
                     "{:.2f} ms per Swap waiting for the game (WAIT_REG_MEM)",
                     (busy - wait) / double(swaps), draws ? (busy - wait) * 1000.0 / double(draws) : 0.0,
                     draws / swaps, wait / double(swaps));
-      if (swaps && !draw_histogram_.empty()) {
-        std::vector<std::pair<uint64_t, uint64_t>> top;
-        for (const auto& [k, v] : draw_histogram_) top.emplace_back(v, k);
-        std::sort(top.begin(), top.end(), std::greater<>());
-        std::string text;
-        for (size_t i = 0; i < top.size() && i < 8; ++i)
-          text += fmt::format(" [mode {} depth {:05X} color0 {:04X} mask {:04X}: {}/Swap]", uint32_t(top[i].second >> 56),
-                              uint32_t((top[i].second >> 32) & 0x1FFFF), uint32_t((top[i].second >> 16) & 0xFFFF),
-                              uint32_t(top[i].second & 0xFFFF), top[i].first / swaps);
-        REXLOG_INFO("[native] DRAW HISTOGRAM per Swap (gh3_performance_mode={}):{}", REXCVAR_GET(gh3_performance_mode), text);
-      }
-      draw_histogram_.clear();
       report_ring_swaps_ = swaps_;
       report_ring_draws_ = draws_;
       report_ring_busy_ns_ = ring_busy_ns_;

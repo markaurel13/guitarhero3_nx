@@ -356,8 +356,8 @@ class Gh3App : public rex::ReXApp {
         break;
       }
     }
-    // Force Core 0 to be 100% exclusive to the game's Main thread (no background workers sharing it!)
-    REXCVAR_SET(switch_exclusive_core, 0);
+    // Core 0 exclusive for Main, allowing light guest workers (<35% CPU) during idle time
+    REXCVAR_SET(switch_exclusive_core, 10);
 #if defined(__SWITCH__)
     rex::cvar::SetFlagByName("sa2_vsync_relaxed", "true");  // GH3-NX: do not block on VBlank; cadence enforced by swap_interval=2 (30 FPS Vulkan VSync)
     rex::cvar::SetFlagByName("sa2_native_dedupe_max_fingerprint", "1");

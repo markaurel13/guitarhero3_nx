@@ -2815,12 +2815,12 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       if (REXCVAR_GET(gh3_performance_mode)) {
         const uint32_t edram_mode = r[gr::XE_GPU_REG_RB_MODECONTROL] & 0x7;
         const uint32_t color_mask = r[gr::XE_GPU_REG_RB_COLOR_MASK] & 0xFFFF;
-        // (1) Shadow depth passes (mode 5, depth base 0).
-        if (edram_mode == 5 && (r[gr::XE_GPU_REG_RB_DEPTH_INFO] & 0xFFF) == 0) {
+        // (1) Shadow depth passes (mode 5).
+        if (edram_mode == 5) {
           return true;
         }
-        // (2) VS 1527 mipmap downsamples (small char shadow textures).
-        if (submission.vs && submission.vs->number == 1527 && r[gr::XE_GPU_REG_RB_DEPTH_INFO] == 0x00000080u) {
+        // (2) Character shadow passes (depth base 0x080).
+        if ((r[gr::XE_GPU_REG_RB_DEPTH_INFO] & 0xFFF) == 0x80) {
           return true;
         }
         // (3) Depth pre-pass: mode 4, color writes disabled (mask 0), no color RT.
