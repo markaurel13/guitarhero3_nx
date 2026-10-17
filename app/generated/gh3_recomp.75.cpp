@@ -9765,7 +9765,12 @@ loc_822FAA58:
 	// cmplwi cr6,r11,0
 	ctx.cr6.compare<uint32_t>(ctx.r11.u32, 0, ctx.xer);
 	// bne cr6,0x822faa58
-	if (!ctx.cr6.eq) goto loc_822FAA58;
+	if (!ctx.cr6.eq) {
+#if defined(__SWITCH__)
+		RexSwitchSleep(200000);
+#endif
+		goto loc_822FAA58;
+	}
 	// bl 0x823ce5e8
 	ctx.lr = 0x822FAA68;
 	sub_823CE5E8(ctx, base);

@@ -33,20 +33,18 @@ REXCVAR_DEFINE_BOOL(audio_switch_pump, true, "Audio",
                     "MarathonRecomp-NX) instead of 4 in a row when each audout buffer is consumed, which "
                     "left the game's audio server voice without a packet (robotic audio); "
                     "read when the audio is opened");
-REXCVAR_DEFINE_INT32(audio_switch_frames_in_queue, 10, "Audio",
+REXCVAR_DEFINE_INT32(audio_switch_frames_in_queue, 6, "Audio",
                      "With audio_switch_pump: game frames kept queued before audout "
-                     "(cushion; 10 = 53 ms, 6 up to build 105). A longer queue lets the game wait without cutting the "
-                     "output, at the cost of latency: sa2_audio_wait_server_ms waits up to 30 ms; read "
-                     "when the audio is opened");
+                     "(cushion; 6 = 32 ms). A shorter queue keeps note tracking tightly synchronized to display");
 
 namespace rex::audio::nx {
 
 namespace {
 
 // Guest frames per audout buffer, and buffers kept queued in the device.
-// 4 frames are 1024 samples (21.3 ms), the block size MarathonRecomp-NX found
-// to be safe on the shared cores; three buffers cap the latency at ~64 ms.
-constexpr uint32_t kFramesPerBuffer = 4;
+// 2 frames are 512 samples (10.66 ms) for high-frequency note/audio synchronization;
+// three buffers cap the latency at ~32 ms (perfect 30 FPS frame match).
+constexpr uint32_t kFramesPerBuffer = 2;
 constexpr uint32_t kBufferCount = 3;
 constexpr uint32_t kBufferSamples = kFramesPerBuffer * SwitchAudioDriver::kChannelSamples;
 constexpr uint32_t kBufferBytes = kBufferSamples * 2 * sizeof(s16);

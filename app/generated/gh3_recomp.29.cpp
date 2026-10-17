@@ -7945,7 +7945,12 @@ loc_822CA45C:
 	// cmpld cr6,r3,r11
 	ctx.cr6.compare<uint64_t>(ctx.r3.u64, ctx.r11.u64, ctx.xer);
 	// blt cr6,0x822ca45c
-	if (ctx.cr6.lt) goto loc_822CA45C;
+	if (ctx.cr6.lt) {
+#if defined(__SWITCH__)
+		RexSwitchSleep(200000);
+#endif
+		goto loc_822CA45C;
+	}
 loc_822CA470:
 	// lwz r11,24000(r29)
 	ctx.r11.u64 = REX_LOAD_U32(ctx.r29.u32 + 24000);
@@ -7964,7 +7969,12 @@ loc_822CA480:
 	// cmplw cr6,r11,r10
 	ctx.cr6.compare<uint32_t>(ctx.r11.u32, ctx.r10.u32, ctx.xer);
 	// beq cr6,0x822ca480
-	if (ctx.cr6.eq) goto loc_822CA480;
+	if (ctx.cr6.eq) {
+#if defined(__SWITCH__)
+		RexSwitchSleep(200000);
+#endif
+		goto loc_822CA480;
+	}
 	// addi r1,r1,128
 	ctx.r1.s64 = ctx.r1.s64 + 128;
 	// b 0x8248f048

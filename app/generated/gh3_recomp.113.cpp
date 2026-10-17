@@ -9427,6 +9427,13 @@ loc_822D55C0:
 	// bctrl 
 	ctx.lr = 0x822D55D0;
 	REX_CALL_INDIRECT_FUNC(ctx.ctr.u32);
+#if defined(__SWITCH__)
+	// Empty render poll (r27 == 0): Main thread has not published 92(r31) yet.
+	// Do NOT emit a fake VdSwap with the old frontbuffer and do NOT stall for a full VBlank.
+	// Yield 200 us and return so XT0054 picks up Main's published scene immediately.
+	RexSwitchSleep(200000);
+	goto loc_822D5784;
+#endif
 	// lwz r11,18912(r31)
 	ctx.r11.u64 = REX_LOAD_U32(ctx.r31.u32 + 18912);
 	// addi r10,r31,2844
@@ -9494,7 +9501,12 @@ loc_822D5638:
 	// cmpld cr6,r3,r11
 	ctx.cr6.compare<uint64_t>(ctx.r3.u64, ctx.r11.u64, ctx.xer);
 	// blt cr6,0x822d5638
-	if (ctx.cr6.lt) goto loc_822D5638;
+	if (ctx.cr6.lt) {
+#if defined(__SWITCH__)
+		RexSwitchSleep(200000);
+#endif
+		goto loc_822D5638;
+	}
 	// bl 0x821728a8
 	ctx.lr = 0x822D564C;
 	sub_821728A8(ctx, base);
@@ -9633,22 +9645,7 @@ loc_822D5714:
 	// std r11,25352(r30)
 	REX_STORE_U64(ctx.r30.u32 + 25352, ctx.r11.u64);
 loc_822D5744:
-	// bl 0x821728e8
-	ctx.lr = 0x822D5748;
-	sub_821728E8(ctx, base);
-	// ld r11,25352(r30)
-	ctx.r11.u64 = REX_LOAD_U64(ctx.r30.u32 + 25352);
-	// cmpld cr6,r3,r11
-	ctx.cr6.compare<uint64_t>(ctx.r3.u64, ctx.r11.u64, ctx.xer);
-	// blt cr6,0x822d5760
-	if (ctx.cr6.lt) goto loc_822D5760;
-	// bl 0x821728e8
-	ctx.lr = 0x822D5758;
-	sub_821728E8(ctx, base);
-	// addi r11,r3,1
-	ctx.r11.s64 = ctx.r3.s64 + 1;
-	// std r11,25352(r30)
-	REX_STORE_U64(ctx.r30.u32 + 25352, ctx.r11.u64);
+	goto loc_822D5760;
 loc_822D5760:
 	REX_LOOP_BARRIER();
 	// bl 0x821728e8
@@ -9659,7 +9656,12 @@ loc_822D5760:
 	// cmpld cr6,r3,r11
 	ctx.cr6.compare<uint64_t>(ctx.r3.u64, ctx.r11.u64, ctx.xer);
 	// blt cr6,0x822d5760
-	if (ctx.cr6.lt) goto loc_822D5760;
+	if (ctx.cr6.lt) {
+#if defined(__SWITCH__)
+		RexSwitchSleep(200000);
+#endif
+		goto loc_822D5760;
+	}
 	// bl 0x821728e8
 	ctx.lr = 0x822D5774;
 	sub_821728E8(ctx, base);

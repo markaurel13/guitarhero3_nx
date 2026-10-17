@@ -364,7 +364,7 @@ namespace {
 int SwitchPriorityFor(bool guest_thread, std::string_view name) {
   if (guest_thread) {
     if (name.starts_with("Main")) {
-      return 0x2E;  // 46: Horizon priority for main game thread (above background 0x3B workers!)
+      return 0x2C;  // 44: High priority for main game thread (equal to GPU ring, above all workers!)
     }
     if (name.find("824E4FF8") != std::string_view::npos) {
       return 0x2D;  // 45: Horizon priority for render workers XT0044/XT0048 (above 0x2E Main and 0x3B workers)

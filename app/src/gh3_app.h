@@ -356,11 +356,10 @@ class Gh3App : public rex::ReXApp {
         break;
       }
     }
-    if (REXCVAR_GET(switch_exclusive_core) < 0) {
-      REXCVAR_SET(switch_exclusive_core, 10);
-    }
+    // Force Core 0 to be 100% exclusive to the game's Main thread (no background workers sharing it!)
+    REXCVAR_SET(switch_exclusive_core, 0);
 #if defined(__SWITCH__)
-    rex::cvar::SetFlagByName("sa2_vsync_relaxed", "true");
+    rex::cvar::SetFlagByName("sa2_vsync_relaxed", "false");
     rex::cvar::SetFlagByName("sa2_native_dedupe_max_fingerprint", "1");
     rex::cvar::SetFlagByName("sa2_native_fingerprints_kb_frame", "256");
 #endif
@@ -382,13 +381,13 @@ class Gh3App : public rex::ReXApp {
     sa2::pgo::Start();
 #if defined(__SWITCH__)
     // Display swap interval:
-    // 0 = NON-BLOCKING TRIPLE BUFFER (Smooth, 0 ms acquire latency, avoids the 15 FPS collapse on stock clocks)
+    // 0 = NON-BLOCKING TRIPLE BUFFER (Smooth, 0 ms acquire latency)
     // 1 = 60 FPS VSYNC
-    // 2 = 30 FPS VSYNC (only if frame time < 31ms)
-    int target_interval = (s_override_swap_interval >= 0) ? s_override_swap_interval : 0;
+    // 2 = 30 FPS VSYNC (Rock-solid 33.3ms cadence on Horizon nvnflinger compositor)
+    int target_interval = (s_override_swap_interval >= 0) ? s_override_swap_interval : 1;
     RexSwitchPerfIntervalSwap(target_interval);
     REXLOG_INFO("[GH3] Display swap interval set to {} ({})",
-                target_interval, target_interval == 0 ? "NON-BLOCKING TRIPLE BUFFER (smooth 60 Hz nvnflinger compositor)" : (target_interval == 1 ? "60 FPS VSYNC" : "30 FPS VSYNC"));
+                target_interval, target_interval == 0 ? "NON-BLOCKING TRIPLE BUFFER" : (target_interval == 1 ? "60 FPS VSYNC" : "30 FPS VSYNC (33.3 ms rock-solid cadence)"));
 #endif
   }
 

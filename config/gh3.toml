@@ -59,7 +59,7 @@ sa2_deferred_native_fast = false
 sa2_deferred_native_batch = 16
 sa2_deferred_native_update = false
 sa2_native_deferred_worker_core = -1
-switch_exclusive_core = 10
+switch_exclusive_core = 0
 sa2_cpu_main_thread_priority = true
 sa2_main_thread_priority = 46
 sa2_native_fingerprint_mode = 2
@@ -103,8 +103,8 @@ store_shaders = true
 present_wait_acquisition_in_cpu = false
 vulkan_allow_present_mode_immediate = true
 vulkan_allow_present_mode_fifo_relaxed = true
-# VSync relajado: entrega los cuadros tan pronto como estan listos sin cuantizacion FIFO ni saltos de notas
-sa2_vsync_relaxed = true
+# VSync estricto a 60 Hz exactos: evita el timeout artificial de 50 ms de VBlank
+sa2_vsync_relaxed = false
 
 # Optimizaciones Tegra X1
 anisotropic_override = 1

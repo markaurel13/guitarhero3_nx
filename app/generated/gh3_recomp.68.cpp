@@ -9223,7 +9223,12 @@ loc_822D4D94:
 	// cmplwi cr6,r9,0
 	ctx.cr6.compare<uint32_t>(ctx.r9.u32, 0, ctx.xer);
 	// beq cr6,0x822d4d94
-	if (ctx.cr6.eq) goto loc_822D4D94;
+	if (ctx.cr6.eq) {
+#if defined(__SWITCH__)
+		RexSwitchSleep(200000);
+#endif
+		goto loc_822D4D94;
+	}
 loc_822D4DA8:
 	// mr r3,r30
 	ctx.r3.u64 = ctx.r30.u64;
