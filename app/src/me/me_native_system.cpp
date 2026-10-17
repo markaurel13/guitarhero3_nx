@@ -2037,6 +2037,14 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
         } else {
           // Performance Mode: early-out dynamic shadow map depth passes (base 0x000 in depth-only Mode 5)
           // before PairDraw(), Draw(), and EDRAM4 tile synchronization/publication.
+          {
+            // Diagnostic: histogram of draws by (edram mode, depth info, color info 0, color mask).
+            const uint64_t key = (uint64_t(Register(kRegRbModeControl) & 0x7) << 56) |
+                (uint64_t(Register(rex::graphics::XE_GPU_REG_RB_DEPTH_INFO) & 0x1FFFF) << 32) |
+                (uint64_t(Register(rex::graphics::XE_GPU_REG_RB_COLOR_INFO) & 0xFFFF) << 16) |
+                (Register(rex::graphics::XE_GPU_REG_RB_COLOR_MASK) & 0xFFFF);
+            ++draw_histogram_[key];
+          }
           if (REXCVAR_GET(gh3_performance_mode) && (Register(kRegRbModeControl) & 0x7) == 5 &&
               (Register(rex::graphics::XE_GPU_REG_RB_DEPTH_INFO) & 0xFFF) == 0) {
             break;
@@ -2387,6 +2395,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
   uint64_t direct_pairs_used_ = 0, direct_pairs_checked_ = 0, direct_pairs_table_missed_ = 0;
   // The ring thread's time in its parse loop and, of that, in WAIT_REG_MEM waits for the game (Report).
   uint64_t ring_busy_ns_ = 0, ring_wait_ns_ = 0;
+  std::unordered_map<uint64_t, uint64_t> draw_histogram_;
   uint64_t report_ring_busy_ns_ = 0, report_ring_wait_ns_ = 0, report_ring_swaps_ = 0, report_ring_draws_ = 0;
 
   uint32_t Register(uint32_t index) const { return index < kRegisterCount ? registers_[index] : 0; }
@@ -3828,6 +3837,18 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
                     "{:.2f} ms per Swap waiting for the game (WAIT_REG_MEM)",
                     (busy - wait) / double(swaps), draws ? (busy - wait) * 1000.0 / double(draws) : 0.0,
                     draws / swaps, wait / double(swaps));
+      if (swaps && !draw_histogram_.empty()) {
+        std::vector<std::pair<uint64_t, uint64_t>> top;
+        for (const auto& [k, v] : draw_histogram_) top.emplace_back(v, k);
+        std::sort(top.begin(), top.end(), std::greater<>());
+        std::string text;
+        for (size_t i = 0; i < top.size() && i < 8; ++i)
+          text += fmt::format(" [mode {} depth {:05X} color0 {:04X} mask {:04X}: {}/Swap]", uint32_t(top[i].second >> 56),
+                              uint32_t((top[i].second >> 32) & 0x1FFFF), uint32_t((top[i].second >> 16) & 0xFFFF),
+                              uint32_t(top[i].second & 0xFFFF), top[i].first / swaps);
+        REXLOG_INFO("[native] DRAW HISTOGRAM per Swap (gh3_performance_mode={}):{}", REXCVAR_GET(gh3_performance_mode), text);
+      }
+      draw_histogram_.clear();
       report_ring_swaps_ = swaps_;
       report_ring_draws_ = draws_;
       report_ring_busy_ns_ = ring_busy_ns_;
