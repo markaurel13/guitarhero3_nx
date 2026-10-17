@@ -42,7 +42,7 @@ sa2_native_logical_resolved_size = false
 # 0 (o false): Desactivado (por defecto, renderiza el escenario 3D completo).
 # 1 (o true): Activado (fondo negro solido estilo Guitar Hero 3 PC / Clone Hero a 60 FPS clavados).
 # Tambien puedes configurarlo colocando un archivo llamado 'config' junto al .nro con un 1 o un 0.
-gh3_performance_mode = false
+gh3_performance_mode = true
 
 # Optimizaciones CPU y Ring Thread (60 FPS)
 sa2_cpu_enhancements = true
@@ -105,7 +105,7 @@ present_wait_acquisition_in_cpu = false
 vulkan_allow_present_mode_immediate = true
 vulkan_allow_present_mode_fifo_relaxed = true
 # VSync estricto a 60 Hz exactos: evita el timeout artificial de 50 ms de VBlank
-sa2_vsync_relaxed = false
+sa2_vsync_relaxed = true
 
 # Optimizaciones Tegra X1
 anisotropic_override = 1

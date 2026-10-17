@@ -370,9 +370,12 @@ int SwitchPriorityFor(bool guest_thread, std::string_view name) {
       return 0x2D;  // 45: Horizon priority for render workers XT0044/XT0048 (above 0x2E Main and 0x3B workers)
     }
     // Audio streaming feeder thread in GH3: sub_826E1F90 feeds XMA streams.
-    // Set to 0x2D (just below 0x2C GPU ring and above 0x2E Main) so it never starves graphics!
+    // Lower to 0x2E (below the GPU ring at 0x2D) so the ring always preempts it.
+    // The XMA decoder itself runs at 0x2B (audio priority), so the feeder being one step
+    // below the ring is safe: audio playback stays uninterrupted, and the ring no longer
+    // loses 50% of its core to this thread.
     if (name.find("826E1F90") != std::string_view::npos) {
-      return 0x2D;
+      return 0x2E;
     }
     if (name.starts_with("Audio") || name.starts_with("XMA")) {
       return REX_SWITCH_PRIO_AUDIO;  // 0x2B: Top audio priority!

@@ -1177,6 +1177,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
     ring_thread_->set_name("GPU ring native");
     ring_thread_->Create();
 #if defined(__SWITCH__)
+    // Core affinity is pinned from inside RingLoop() via RexSwitchPinCurrentThreadToCore(1).
     ring_thread_->SetAffinity(1 << 4);
 #endif
     return X_STATUS_SUCCESS;
@@ -1621,6 +1622,16 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
   }
 
   int RingLoop() {
+#if defined(__SWITCH__)
+    // GH3-NX: pin the ring to Switch Core 1 from inside the running thread.
+    // Core 2 (where the ring landed by default) is saturated at ~170% with XT00D0+XT0054+XT006x.
+    // Core 1 only has Main_82136AC8 (27-47% CPU), giving the ring uncontested time.
+    // RexSwitchPinCurrentThreadToCore pins with mask={only core 1}, not just a preference.
+    {
+      const bool ok = RexSwitchPinCurrentThreadToCore(1);
+      REXLOG_INFO("[native] GPU ring: pin to Switch Core 1: {}", ok ? "accepted" : "REJECTED");
+    }
+#endif
     uint32_t read = 0;
     uint32_t generation = ring_generation_.load(std::memory_order_acquire);
     while (active_.load(std::memory_order_acquire)) {
@@ -2035,8 +2046,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
           if (trace_phase_ == 1) TraceCopy();
           Copy();
         } else {
-          // Performance Mode: early-out dynamic shadow map depth passes (base 0x000 in depth-only Mode 5)
-          // before PairDraw(), Draw(), and EDRAM4 tile synchronization/publication.
+          // Performance Mode: skip expensive draws that produce no visible output.
           {
             // Diagnostic: histogram of draws by (edram mode, depth info, color info 0, color mask).
             const uint64_t key = (uint64_t(Register(kRegRbModeControl) & 0x7) << 56) |
@@ -2045,9 +2055,20 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
                 (Register(rex::graphics::XE_GPU_REG_RB_COLOR_MASK) & 0xFFFF);
             ++draw_histogram_[key];
           }
-          if (REXCVAR_GET(gh3_performance_mode) && (Register(kRegRbModeControl) & 0x7) == 5 &&
-              (Register(rex::graphics::XE_GPU_REG_RB_DEPTH_INFO) & 0xFFF) == 0) {
-            break;
+          if (REXCVAR_GET(gh3_performance_mode)) {
+            const uint32_t edram_mode = Register(kRegRbModeControl) & 0x7;
+            const uint32_t color_mask = Register(rex::graphics::XE_GPU_REG_RB_COLOR_MASK) & 0xFFFF;
+            const uint32_t depth_base = Register(rex::graphics::XE_GPU_REG_RB_DEPTH_INFO) & 0xFFF;
+            // (1) Depth-only shadow passes (mode 5, base 0x000): ~42 draws/Swap.
+            if (edram_mode == 5 && depth_base == 0) break;
+            // (2) Depth pre-pass: mode 4, color writes fully disabled (mask 0x0000), no color RT configured.
+            //     These account for ~5000-6600 draws/Swap and ~25-34 ms of ring-thread work per frame.
+            //     The Switch GPU (Adreno) has hardware HSR so the explicit Z pre-pass is entirely redundant.
+            //     The real shaded draw that follows writes depth again with Z-test+Z-write, so depth is correct.
+            if (edram_mode == 4 && color_mask == 0x0000 &&
+                (Register(rex::graphics::XE_GPU_REG_RB_COLOR_INFO) & 0xFFFF) == 0x0000) {
+              break;
+            }
           }
           ++draws_;
           if (depth > 0) ++draws_indirect_;

@@ -359,7 +359,7 @@ class Gh3App : public rex::ReXApp {
     // Force Core 0 to be 100% exclusive to the game's Main thread (no background workers sharing it!)
     REXCVAR_SET(switch_exclusive_core, 0);
 #if defined(__SWITCH__)
-    rex::cvar::SetFlagByName("sa2_vsync_relaxed", "false");
+    rex::cvar::SetFlagByName("sa2_vsync_relaxed", "true");  // GH3-NX: do not block on VBlank; cadence enforced by swap_interval=2 (30 FPS Vulkan VSync)
     rex::cvar::SetFlagByName("sa2_native_dedupe_max_fingerprint", "1");
     rex::cvar::SetFlagByName("sa2_native_fingerprints_kb_frame", "256");
     rex::cvar::SetFlagByName("sa2_native_edram4_clear_color0", "true");

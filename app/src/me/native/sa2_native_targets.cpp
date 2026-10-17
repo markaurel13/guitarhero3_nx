@@ -2813,10 +2813,21 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
     if (submission.registers) {
       const uint32_t* r = submission.registers;
       if (REXCVAR_GET(gh3_performance_mode)) {
-        if ((r[gr::XE_GPU_REG_RB_MODECONTROL] & 0x7) == 5 && (r[gr::XE_GPU_REG_RB_DEPTH_INFO] & 0xFFF) == 0) {
+        const uint32_t edram_mode = r[gr::XE_GPU_REG_RB_MODECONTROL] & 0x7;
+        const uint32_t color_mask = r[gr::XE_GPU_REG_RB_COLOR_MASK] & 0xFFFF;
+        // (1) Shadow depth passes (mode 5, depth base 0).
+        if (edram_mode == 5 && (r[gr::XE_GPU_REG_RB_DEPTH_INFO] & 0xFFF) == 0) {
           return true;
         }
+        // (2) VS 1527 mipmap downsamples (small char shadow textures).
         if (submission.vs && submission.vs->number == 1527 && r[gr::XE_GPU_REG_RB_DEPTH_INFO] == 0x00000080u) {
+          return true;
+        }
+        // (3) Depth pre-pass: mode 4, color writes disabled (mask 0), no color RT.
+        //     These are ~5000-6600 draws/Swap and cost ~25-34 ms/frame in the ring thread.
+        //     Adreno's HSR makes the explicit Z pre-pass redundant; the shaded draw writes depth anyway.
+        if (edram_mode == 4 && color_mask == 0x0000 &&
+            (r[gr::XE_GPU_REG_RB_COLOR_INFO] & 0xFFFF) == 0x0000) {
           return true;
         }
       }
