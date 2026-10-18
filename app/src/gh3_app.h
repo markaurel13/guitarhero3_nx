@@ -359,14 +359,14 @@ class Gh3App : public rex::ReXApp {
     // Core 0 exclusive for Main, allowing light guest workers (<35% CPU) during idle time
     REXCVAR_SET(switch_exclusive_core, 10);
 #if defined(__SWITCH__)
-    rex::cvar::SetFlagByName("sa2_render_height_handheld", "360");
+    rex::cvar::SetFlagByName("sa2_render_height_handheld", "720");
     rex::cvar::SetFlagByName("sa2_render_height_docked", "720");
     rex::cvar::SetFlagByName("present_letterbox", "false");
     rex::cvar::SetFlagByName("present_safe_area_x", "100");
     rex::cvar::SetFlagByName("present_safe_area_y", "100");
     rex::cvar::SetFlagByName("present_allow_overscan_cutoff", "false");
     rex::cvar::SetFlagByName("present_effect", "bilinear");
-    rex::cvar::SetFlagByName("sa2_vsync_relaxed", "false");  // GH3-NX: regular 60 Hz VBlanks keep Bink video decoding and audio buffer smoothly advancing
+    rex::cvar::SetFlagByName("sa2_vsync_relaxed", "true");  // GH3-NX: do not block on VBlank; cadence enforced by swap_interval=2 (30 FPS Vulkan VSync)
     rex::cvar::SetFlagByName("sa2_native_dedupe_max_fingerprint", "1");
     rex::cvar::SetFlagByName("sa2_native_fingerprints_kb_frame", "256");
     rex::cvar::SetFlagByName("sa2_native_fingerprints_sampling", "16");

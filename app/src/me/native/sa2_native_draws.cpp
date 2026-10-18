@@ -2696,14 +2696,39 @@ class DrawsVulkanImpl final : public DrawsVulkan {
         return true;
       }
     }
-    // Bloom blur pass (VS 1527, depth base 0x080) - eliminates the white transparent veil.
-    if (REXCVAR_GET(gh3_performance_mode) && p.vs && p.vs->number == 1527 &&
-        (r[gr::XE_GPU_REG_RB_DEPTH_INFO] & 0xFFF) == 0x80) {
-      return true;
-    }
-    // Bloom additive accumulation pass (PS 3701) - eliminates the milky white transparent veil.
-    if (REXCVAR_GET(gh3_performance_mode) && p.ps && p.ps->number == 3701) {
-      return true;
+    // Volumetric stage light cones, spotlights, and bloom passes that create the white transparent veil wash:
+    // Never skip crowd billboards (depth base 0x080)
+    if (REXCVAR_GET(gh3_performance_mode)) {
+      // Bloom additive accumulation pass (PS 3701, VS 1115 / 1527):
+      // This pass composites the bloom pyramid onto the screen with additive blending (blend0 00010001),
+      // producing the milky white transparent veil across the stage. It runs at depth base 0x80 so it
+      // must NOT be guarded by depth_base != 0x80.
+      if (p.ps && p.ps->number == 3701) {
+        return true;
+      }
+      if (p.vs && (p.vs->number == 1115 || p.vs->number == 1527)) {
+        return true;
+      }
+      const uint32_t depth_base = r[gr::XE_GPU_REG_RB_DEPTH_INFO] & 0xFFF;
+      if (depth_base != 0x80) {
+        if (p.ps) {
+          const uint32_t n = p.ps->number;
+          if (n == 201 || n == 803 || n == 2250 || n == 2338 || n == 2394 || n == 4041) {
+            return true;
+          }
+        }
+        if (p.vs) {
+          const uint32_t n = p.vs->number;
+          if (n == 2206 || n == 3423 || n == 3759 || n == 3916 || n == 4265) {
+            return true;
+          }
+        }
+      }
+      // Mipmap downsampling passes for cubemap reflections (code=0x8920A36708F89B95ull).
+      // These downsample passes blit to pitch <= 128 with depth base 0x80. Nobody reads the result.
+      if (p.vs_program_hash == 0x8920A36708F89B95ull && depth_base == 0x80) {
+        return true;
+      }
     }
     // Mode 5 (depth only): the Xenos does not run the pixel shader (IsPixelShaderNeededWithRasterization). Without a PS there are no textures, pixel constants or alpha test,
     // and the pipeline has no fragment stage. The shadow passes work this way, and some arrive with the PS

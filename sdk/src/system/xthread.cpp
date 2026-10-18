@@ -370,6 +370,12 @@ int SwitchPriorityFor(bool guest_thread, std::string_view name) {
     if (name.find("824E4FF8") != std::string_view::npos) {
       return 0x2D;  // 45: Horizon priority for render workers XT0044/XT0048 (above 0x3B workers)
     }
+    // File I/O & resource loader threads (XT0038/XT0034):
+    // Must run with high priority so song loading, PAK unpacking, and audio streaming never starve!
+    if (name.find("82150048") != std::string_view::npos ||
+        name.find("8215F848") != std::string_view::npos) {
+      return 0x2D;  // 45: High priority for file loader threads (never starved during song loading)
+    }
     if (name.starts_with("Audio") || name.starts_with("XMA")) {
       return REX_SWITCH_PRIO_AUDIO;  // 0x2B: Top audio DSP priority!
     }
@@ -379,9 +385,11 @@ int SwitchPriorityFor(bool guest_thread, std::string_view name) {
   // so the prefix is compared. With an exact comparison the Audio Worker and the
   // XMA Decoder stayed at the presentation priority (0x2C) instead of the audio one
   // (0x2B), as rex_profile.log showed on the console.
+  if (name.starts_with("GPU ring")) {
+    return 0x28;  // 40: Top priority, isolated on Core 1, never preempted by guest or audio threads!
+  }
   if (name.starts_with("Audio Worker") || name.starts_with("XMA Decoder") ||
-      name.starts_with("Audio") || name.starts_with("XMA") ||
-      name.starts_with("GPU ring native")) {
+      name.starts_with("Audio") || name.starts_with("XMA")) {
     return REX_SWITCH_PRIO_AUDIO;
   }
   return REX_SWITCH_PRIO_PRESENT;  // GPU Commands, GPU VSync, Kernel Dispatch
@@ -512,18 +520,15 @@ X_STATUS XThread::Create() {
     REXLOG_INFO("[nx] Thread '{}' priority set to {:#x}", thread_name_, target_prio);
     if (guest_thread_) {
       if (main_thread_) {
-        // Main game thread: prefers Core 0, can use all 3 cores (0x7).
-        RexSwitchSetCurrentThreadCoreMask(0, (1ull << 0) | (1ull << 1) | (1ull << 2));
+        // Main game thread: runs on Core 0 and Core 2 (NEVER Core 1, which is strictly reserved for GPU ring native).
+        RexSwitchSetCurrentThreadCoreMask(0, (1ull << 0) | (1ull << 2));
       } else if (thread_name_.find("826E1F90") != std::string_view::npos) {
-        // Audio stream feeder: prefers Core 2 alone, can use all 3 cores.
-        RexSwitchSetCurrentThreadCoreMask(2, (1ull << 0) | (1ull << 1) | (1ull << 2));
+        // Audio stream feeder: runs on Core 2 and Core 0 (NEVER Core 1).
+        RexSwitchSetCurrentThreadCoreMask(2, (1ull << 0) | (1ull << 2));
       } else {
         // Guest workers (XT0054, XT0068, XT006C, XT0070, etc.):
-        // Prefer Core 1 and Core 2 (NEVER Core 0, preventing priority starvation by Main).
-        // Mask 0x7 allows utilizing idle cycles across all 3 cores.
-        static std::atomic<uint32_t> s_worker_index{0};
-        const int pref = int((s_worker_index.fetch_add(1, std::memory_order_relaxed) % 2) + 1);
-        RexSwitchSetCurrentThreadCoreMask(pref, (1ull << 0) | (1ull << 1) | (1ull << 2));
+        // Prefer Core 2, can use Core 0 (NEVER Core 1).
+        RexSwitchSetCurrentThreadCoreMask(2, (1ull << 0) | (1ull << 2));
       }
     }
 #endif

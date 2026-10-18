@@ -1,4 +1,7 @@
 #include "gh3_funcs.49.h"
+#if defined(__SWITCH__)
+#include <sched.h>
+#endif
 
 DEFINE_REX_FUNC(sub_820D0A68) {
 	REX_FUNC_PROLOGUE();
@@ -12682,6 +12685,9 @@ DEFINE_REX_FUNC(sub_82384DE0) {
 	ctx.r31.s64 = -2100363264;
 loc_82384DFC:
 	REX_LOOP_BARRIER();
+#if defined(__SWITCH__)
+	sched_yield();
+#endif
 	// lwz r11,-19024(r31)
 	ctx.r11.u64 = REX_LOAD_U32(ctx.r31.u32 + -19024);
 	// clrlwi r10,r11,31

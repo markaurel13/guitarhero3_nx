@@ -402,7 +402,9 @@ void ApplyExclusiveCore(FILE* f, const std::vector<size_t>& order) {
       const Slot& s = g_slots[i];
       if (s.handle.load() == pinned ||
           (std::strstr(s.name, "XT") == nullptr && std::strstr(s.name, "Main") == nullptr &&
-           std::strstr(s.name, "XThread") == nullptr)) continue;
+           std::strstr(s.name, "XThread") == nullptr) ||
+          std::strstr(s.name, "826E1F90") != nullptr ||
+          std::strstr(s.name, "82384DE0") != nullptr) continue;
       if (s.cpu < 35.0) break;
       if (R_SUCCEEDED(svcSetThreadPriority(s.handle.load(), 0x2B))) {
         raised = s.handle.load();

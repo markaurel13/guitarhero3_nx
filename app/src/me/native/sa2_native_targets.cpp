@@ -1623,6 +1623,37 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       }
       return !edram4_operation_failed_;
     }
+    // Performance Mode: skip redundant resolves and copies that choke the Switch Tegra GPU with 41 copies per frame.
+    // The only surfaces actually presented/sampled are 0x089C8000 (3D scene), 0x0C7D0000 (highway), 0x0CB68000 (HUD).
+    if (REXCVAR_GET(gh3_performance_mode) && do_copy) {
+      const uint32_t dest_base = reg.rb_copy_dest_base & 0x1FFFF000u;
+      bool skip = false;
+      // 1. Unused intermediate resolve
+      if (dest_base == 0x0BEEC000u) {
+        skip = true;
+      }
+      // 2. Empty resolve with 0 draws (1280x720, 2 per frame)
+      else if (dest_base == 0x0C2C0000u) {
+        skip = true;
+      }
+      // 3. Bloom blur & downscale passes (320x180, ~14-18 per frame). Bloom composite (PS 3701) is disabled.
+      else if (dest_base == 0x0C668000u) {
+        skip = true;
+      }
+      // 4. Stage cubemap reflection faces and downscale mips (0x080F0000 - 0x085D0000, 8-10 per frame).
+      else if (dest_base >= 0x080F0000u && dest_base <= 0x085D0000u) {
+        skip = true;
+      }
+      // 5. Cubemap reflection downsamples (pitch <= 128 at depth base 0x80)
+      else if ((reg.rb_depth_info & 0xFFF) == 0x80 &&
+               (reg.rb_copy_dest_pitch & 0x3FFF) > 0 && (reg.rb_copy_dest_pitch & 0x3FFF) <= 128) {
+        skip = true;
+      }
+      if (skip) {
+        ++gh3_skipped_resolves_;
+        return true;
+      }
+    }
     const uint32_t info_color = reg.rb_color_info[source];
     const uint32_t color_format = (info_color >> 16) & 0xF;
     if (HostFormatTargetColor(color_format) == VK_FORMAT_UNDEFINED) {
@@ -2820,15 +2851,33 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
             (r[gr::XE_GPU_REG_RB_COLOR_INFO] & 0xFFFF) == 0x0000) {
           return true;
         }
-        // (3) Bloom blur pass (VS 1527, depth base 0x080).
-        // This pass generates the excessive additive bloom wash that creates the white veil filter.
-        if (submission.vs && submission.vs->number == 1527 && (r[gr::XE_GPU_REG_RB_DEPTH_INFO] & 0xFFF) == 0x80) {
+        // Bloom additive accumulation pass (PS 3701, VS 1115 / 1527):
+        if (submission.ps && submission.ps->number == 3701) {
           return true;
         }
-        // (4) Bloom additive accumulation pass (PS 3701).
-        // This pass composites the bloom pyramid onto the screen with additive blending (blend0 00010001),
-        // producing the milky white transparent veil across the stage.
-        if (submission.ps && submission.ps->number == 3701) {
+        if (submission.vs && (submission.vs->number == 1115 || submission.vs->number == 1527)) {
+          return true;
+        }
+        const uint32_t depth_base = r[gr::XE_GPU_REG_RB_DEPTH_INFO] & 0xFFF;
+        // (3) Volumetric light cones, stage spotlights:
+        // Never skip crowd billboards (depth base 0x080)
+        if (depth_base != 0x80) {
+          if (submission.ps) {
+            const uint32_t n = submission.ps->number;
+            if (n == 201 || n == 803 || n == 2250 || n == 2338 || n == 2394 || n == 4041) {
+              return true;
+            }
+          }
+          if (submission.vs) {
+            const uint32_t n = submission.vs->number;
+            if (n == 2206 || n == 3423 || n == 3759 || n == 3916 || n == 4265) {
+              return true;
+            }
+          }
+        }
+        // (4) Mipmap downsampling passes for cubemap reflections (code=0x8920A36708F89B95ull).
+        // These downsample passes blit to pitch <= 128 with depth base 0x80. Nobody reads the result.
+        if (submission.vs_program_hash == 0x8920A36708F89B95ull && depth_base == 0x80) {
           return true;
         }
       }
@@ -10179,6 +10228,10 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
     }
     copies_per_target_.clear();
     SA2_REPORT_RING("[native] targets: faces resolved since the previous report:{}", list);
+    if (gh3_skipped_resolves_) {
+      SA2_REPORT_RING("[GH3-PERF] Redundant resolves skipped in report interval: {}", gh3_skipped_resolves_);
+      gh3_skipped_resolves_ = 0;
+    }
     ReportOverlapsEDRAM();
     ReportWaitsGpu();
     // sa2-nx render resolution / MSAA: what the scaled images take (only once either has been used).
@@ -10928,6 +10981,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
   uint32_t changes_resolved_recorded_format_ = 0;  // ME: log of format/size changes at a resolve address
   uint64_t rejections_ = 0;
   std::unordered_set<uint32_t> warned_;
+  uint64_t gh3_skipped_resolves_ = 0;
 };
 
 }  // namespace

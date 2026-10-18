@@ -2049,10 +2049,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem {
             // (1) Depth-only shadow passes (mode 5, base 0x000): ~42 draws/Swap.
             if (edram_mode == 5 && depth_base == 0) break;
             // (2) Depth pre-pass: mode 4, color writes fully disabled (mask 0x0000), no color RT configured.
-            //     These account for ~5000-6600 draws/Swap and ~25-34 ms of ring-thread work per frame.
-            //     The Switch GPU has hardware HSR so the explicit Z pre-pass is entirely redundant.
-            //     The real shaded draw that follows writes depth again with Z-test+Z-write, so depth is correct.
-            //     Crowd billboard renders (base 0x080) write color and are never skipped.
+            //     These account for ~8300 redundant draws/Swap and 38 ms of ring-thread work per frame.
             if (edram_mode == 4 && color_mask == 0x0000 &&
                 (Register(rex::graphics::XE_GPU_REG_RB_COLOR_INFO) & 0xFFFF) == 0x0000) {
               break;
