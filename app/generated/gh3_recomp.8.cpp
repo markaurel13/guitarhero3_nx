@@ -8890,6 +8890,14 @@ loc_822F6C8C:
 
 DEFINE_REX_FUNC(sub_822FC5A8) {
 	REX_FUNC_PROLOGUE();
+#if defined(__SWITCH__)
+	// On Nintendo Switch (3 CPU cores total: Core 0 Main, Core 1 GPU Ring, Core 2 Workers):
+	// Clamping worker threads to 2 prevents CPU oversubscription on Core 2 and eliminates
+	// thread preemption while holding task queue locks.
+	if (ctx.r3.u32 > 2) {
+		ctx.r3.u64 = 2;
+	}
+#endif
 	// lis r11,-32055
 	ctx.r11.s64 = -2100756480;
 	// stw r3,-9540(r11)

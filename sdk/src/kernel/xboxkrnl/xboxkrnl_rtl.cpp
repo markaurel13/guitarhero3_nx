@@ -478,7 +478,7 @@ static void xeEnterCriticalSection(X_RTL_CRITICAL_SECTION* cs, uint32_t cur_thre
       if (is_main) {
         const auto t1 = std::chrono::steady_clock::now();
         uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
-        if (ns >= 1000) {
+        if (ns >= 500000) {
           uint32_t lr = 0;
           if (cur_th->thread_state() && cur_th->thread_state()->context()) {
             lr = static_cast<uint32_t>(cur_th->thread_state()->context()->lr);
