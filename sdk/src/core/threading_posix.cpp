@@ -626,10 +626,6 @@ class PosixConditionBase {
     return const_cast<std::condition_variable&>(cond_).native_handle();
   }
 
-  inline bool has_multi_waiters() const {
-    return multi_count_.load(std::memory_order_relaxed) != 0;
-  }
-
  protected:
   inline virtual bool signaled() const = 0;
   inline virtual void post_execution() = 0;
@@ -684,30 +680,6 @@ class PosixCondition<Event> : public PosixConditionBase {
   void Reset() {
     auto lock = std::unique_lock<std::mutex>(mutex_);
     signal_ = false;
-  }
-
-  void Pulse() {
-    uint32_t waiters;
-    {
-      auto lock = std::unique_lock<std::mutex>(mutex_);
-      waiters = cond_waiters_;
-      if (waiters != 0 || has_multi_waiters()) {
-        signal_ = true;
-      } else {
-        // No threads are waiting. Pulse only releases threads waiting at this instant.
-        signal_ = false;
-        return;
-      }
-    }
-    WakeWaiters(waiters);
-    NotifyMulti();
-    MaybeYield();
-    using namespace std::chrono_literals;
-    Sleep(10us);
-    {
-      auto lock = std::unique_lock<std::mutex>(mutex_);
-      signal_ = false;
-    }
   }
 
  private:
@@ -2024,7 +1996,11 @@ class PosixEvent : public PosixConditionHandle<Event> {
   void Set() override { handle_.Signal(); }
   void Reset() override { handle_.Reset(); }
   void Pulse() override {
-    handle_.Pulse();
+    using namespace std::chrono_literals;
+    handle_.Signal();
+    MaybeYield();
+    Sleep(10us);
+    handle_.Reset();
   }
 };
 

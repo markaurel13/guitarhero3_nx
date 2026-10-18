@@ -7918,6 +7918,23 @@ loc_822CA40C:
 	ctx.r11.u64 = REX_LOAD_U64(ctx.r31.u32 + 23992);
 	// std r3,23984(r30)
 	REX_STORE_U64(ctx.r30.u32 + 23984, ctx.r3.u64);
+#if defined(__SWITCH__)
+	// Intelligent 30 FPS pacing on Switch:
+	// If current_vblank (r3) is already at or past target_vblank (r11), the frame is ready.
+	// In the original game, (r11 - r3) underflowed unsigned 64-bit when late (e.g. 34 ms),
+	// erroneously forcing an extra 33.3 ms sleep and dropping 30 FPS straight to 15 FPS.
+	// Here, if r3 >= r11, proceed directly to loc_822CA470 to advance target without extra sleep!
+	if (ctx.r3.u64 >= ctx.r11.u64) {
+		goto loc_822CA470;
+	}
+	// Frame finished early: clamp target to at most r3 + 2 (30 FPS cadence)
+	// and let loc_822CA45C sleep until target_vblank is reached to keep audio 100% in sync.
+	if (ctx.r11.u64 > ctx.r3.u64 + 2) {
+		ctx.r11.u64 = ctx.r3.u64 + 2;
+		REX_STORE_U64(ctx.r31.u32 + 23992, ctx.r11.u64);
+	}
+	goto loc_822CA454;
+#else
 	// subf r10,r3,r11
 	ctx.r10.u64 = ctx.r11.u64 - ctx.r3.u64;
 	// cmpldi cr6,r10,2
@@ -7928,16 +7945,12 @@ loc_822CA40C:
 	ctx.r11.s64 = ctx.r3.s64 + 2;
 	// std r11,23992(r31)
 	REX_STORE_U64(ctx.r31.u32 + 23992, ctx.r11.u64);
+#endif
 loc_822CA454:
 	// cmpld cr6,r3,r11
 	ctx.cr6.compare<uint64_t>(ctx.r3.u64, ctx.r11.u64, ctx.xer);
 	// bge cr6,0x822ca470
 	if (!ctx.cr6.lt) goto loc_822CA470;
-#if defined(__SWITCH__)
-	// Presentation pacing is already governed by Vulkan swap_interval = 2 (30 FPS).
-	// Bypassing guest VBlank sleep prevents quantization penalty where 33.5 ms frames drop to 20/15 FPS.
-	goto loc_822CA470;
-#endif
 loc_822CA45C:
 	REX_LOOP_BARRIER();
 	// bl 0x821728e8
