@@ -12686,7 +12686,7 @@ DEFINE_REX_FUNC(sub_82384DE0) {
 loc_82384DFC:
 	REX_LOOP_BARRIER();
 #if defined(__SWITCH__)
-	RexSwitchSleep(2000000);
+	RexSwitchSleep(3000000);
 #endif
 	// lwz r11,-19024(r31)
 	ctx.r11.u64 = REX_LOAD_U32(ctx.r31.u32 + -19024);

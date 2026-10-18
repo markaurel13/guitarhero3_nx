@@ -342,7 +342,7 @@ struct X_RTL_CRITICAL_SECTION {
 static_assert_size(X_RTL_CRITICAL_SECTION, 28);
 
 #if defined(__SWITCH__)
-REXCVAR_DEFINE_INT32(kernel_critsec_spin, 256, "Kernel",
+REXCVAR_DEFINE_INT32(kernel_critsec_spin, 768, "Kernel",
                      "RtlEnterCriticalSection on a critical section initialised without a spin count: tries to take "
                      "the lock this many times (with a CPU yield between tries, ~1-2 us for 64) before falling back to "
                      "the full host waiter. 0 = the original behaviour (no spin)");
