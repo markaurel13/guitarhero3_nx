@@ -341,10 +341,17 @@ struct X_RTL_CRITICAL_SECTION {
 #pragma pack(pop)
 static_assert_size(X_RTL_CRITICAL_SECTION, 28);
 
+#if defined(__SWITCH__)
+REXCVAR_DEFINE_INT32(kernel_critsec_spin, 256, "Kernel",
+                     "RtlEnterCriticalSection on a critical section initialised without a spin count: tries to take "
+                     "the lock this many times (with a CPU yield between tries, ~1-2 us for 64) before falling back to "
+                     "the full host waiter. 0 = the original behaviour (no spin)");
+#else
 REXCVAR_DEFINE_INT32(kernel_critsec_spin, 0, "Kernel",
                      "RtlEnterCriticalSection on a critical section initialised without a spin count: tries to take "
                      "the lock this many times (with a CPU yield between tries, ~1-2 us for 64) before falling back to "
                      "the full host waiter. 0 = the original behaviour (no spin)");
+#endif
 
 void xeRtlInitializeCriticalSection(X_RTL_CRITICAL_SECTION* cs, uint32_t cs_ptr) {
   cs->header.type = 1;      // EventSynchronizationObject (auto reset)

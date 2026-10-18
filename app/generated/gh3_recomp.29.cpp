@@ -7933,6 +7933,11 @@ loc_822CA454:
 	ctx.cr6.compare<uint64_t>(ctx.r3.u64, ctx.r11.u64, ctx.xer);
 	// bge cr6,0x822ca470
 	if (!ctx.cr6.lt) goto loc_822CA470;
+#if defined(__SWITCH__)
+	// Presentation pacing is already governed by Vulkan swap_interval = 2 (30 FPS).
+	// Bypassing guest VBlank sleep prevents quantization penalty where 33.5 ms frames drop to 20/15 FPS.
+	goto loc_822CA470;
+#endif
 loc_822CA45C:
 	REX_LOOP_BARRIER();
 	// bl 0x821728e8
