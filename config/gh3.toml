@@ -119,8 +119,8 @@ sa2_io_window_kb = 2048        # Ventana de lectura anticipada de 2 MB (permite 
 sa2_io_windows_max = 16
 sa2_io_ranges_min_kb = 64      # Piso de cache reducido a 64 KB para almacenar bloques de 128 KB
 sa2_io_ranges_mb = 128         # Cap de cache en RAM elevado a 128 MB
-audio_maxqframes = 16          # Capacidad de semaforo de audio (85 ms cushion)
-audio_switch_frames_in_queue = 10  # Frames encolados en Switch antes de audout (53 ms cushion sin underruns)
+audio_maxqframes = 32          # Capacidad de semaforo de audio (170 ms capacidad maxima)
+audio_switch_frames_in_queue = 16  # Frames encolados en Switch antes de audout (85 ms cushion sin underruns)
 audio_switch_pump = true
 
 log_verbose = false

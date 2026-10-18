@@ -33,9 +33,9 @@ REXCVAR_DEFINE_BOOL(audio_switch_pump, true, "Audio",
                     "MarathonRecomp-NX) instead of 4 in a row when each audout buffer is consumed, which "
                     "left the game's audio server voice without a packet (robotic audio); "
                     "read when the audio is opened");
-REXCVAR_DEFINE_INT32(audio_switch_frames_in_queue, 6, "Audio",
+REXCVAR_DEFINE_INT32(audio_switch_frames_in_queue, 16, "Audio",
                      "With audio_switch_pump: game frames kept queued before audout "
-                     "(cushion; 6 = 32 ms). A shorter queue keeps note tracking tightly synchronized to display");
+                     "(cushion; 16 = ~85 ms). Prevents underruns during load spikes");
 
 namespace rex::audio::nx {
 
@@ -61,8 +61,8 @@ constexpr u64 kWaitTimeoutNs = 100'000'000;
 // frames queued or fewer, another one is requested on each tick, and below the minimum one more is
 // requested to catch up (the system clock and the audio clock do not match exactly).
 constexpr u64 kPumpIntervalNs = 1'000'000'000ull * SwitchAudioDriver::kChannelSamples / 48000;
-constexpr size_t kTargetQueuedFrames = 6;
-constexpr size_t kMinQueuedFrames = 2;
+constexpr size_t kTargetQueuedFrames = 16;
+constexpr size_t kMinQueuedFrames = 4;
 
 }  // namespace
 
@@ -383,7 +383,8 @@ void SwitchAudioSystem::OutputThreadMain() {
         PumpTick();
         deadline += interval;
         if (now >= deadline) {
-          deadline = now + interval;  // more than one tick late: no catch-up burst
+          PumpTick();
+          deadline = now + interval;
         }
         continue;
       }

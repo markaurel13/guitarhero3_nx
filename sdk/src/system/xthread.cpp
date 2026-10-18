@@ -386,8 +386,8 @@ int SwitchPriorityFor(bool guest_thread, std::string_view name) {
       return REX_SWITCH_PRIO_AUDIO;  // 0x2B: Top audio DSP priority!
     }
 
-    // Heavy spin/polling threads (XT00D0_826E1F90 @ 54% CPU, XT0054_82384DE0 @ 20% CPU):
-    // Lowered to 0x3C (below 0x3B round-robin) so they yield whenever Main or task workers need CPU cycles.
+    // Background polling/stream threads (XT00D0_826E1F90, XT0054_82384DE0):
+    // Lowered to 0x3C (below 0x3B round-robin) so they yield whenever Main, audio, or task workers need CPU cycles.
     if (name.find("826E1F90") != std::string_view::npos ||
         name.find("82384DE0") != std::string_view::npos) {
       return 0x3C;  // 60: Below 0x3B
