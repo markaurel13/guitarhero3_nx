@@ -1623,10 +1623,6 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       }
       return !edram4_operation_failed_;
     }
-    if (REXCVAR_GET(gh3_performance_mode) && do_copy && reg.rb_depth_info == 0x00000080u &&
-        (reg.rb_copy_dest_pitch & 0x3FFF) > 0 && (reg.rb_copy_dest_pitch & 0x3FFF) <= 128) {
-      return true;
-    }
     const uint32_t info_color = reg.rb_color_info[source];
     const uint32_t color_format = (info_color >> 16) & 0xF;
     if (HostFormatTargetColor(color_format) == VK_FORMAT_UNDEFINED) {
@@ -2815,19 +2811,24 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       if (REXCVAR_GET(gh3_performance_mode)) {
         const uint32_t edram_mode = r[gr::XE_GPU_REG_RB_MODECONTROL] & 0x7;
         const uint32_t color_mask = r[gr::XE_GPU_REG_RB_COLOR_MASK] & 0xFFFF;
-        // (1) Shadow depth passes (mode 5).
-        if (edram_mode == 5) {
+        // (1) Dynamic shadow depth passes (mode 5, depth base 0x000).
+        if (edram_mode == 5 && (r[gr::XE_GPU_REG_RB_DEPTH_INFO] & 0xFFF) == 0) {
           return true;
         }
-        // (2) Character shadow passes (depth base 0x080).
-        if ((r[gr::XE_GPU_REG_RB_DEPTH_INFO] & 0xFFF) == 0x80) {
-          return true;
-        }
-        // (3) Depth pre-pass: mode 4, color writes disabled (mask 0), no color RT.
-        //     These are ~5000-6600 draws/Swap and cost ~25-34 ms/frame in the ring thread.
-        //     Adreno's HSR makes the explicit Z pre-pass redundant; the shaded draw writes depth anyway.
+        // (2) Depth pre-pass: mode 4, color writes disabled (mask 0), no color RT.
         if (edram_mode == 4 && color_mask == 0x0000 &&
             (r[gr::XE_GPU_REG_RB_COLOR_INFO] & 0xFFFF) == 0x0000) {
+          return true;
+        }
+        // (3) Bloom blur pass (VS 1527, depth base 0x080).
+        // This pass generates the excessive additive bloom wash that creates the white veil filter.
+        if (submission.vs && submission.vs->number == 1527 && (r[gr::XE_GPU_REG_RB_DEPTH_INFO] & 0xFFF) == 0x80) {
+          return true;
+        }
+        // (4) Bloom additive accumulation pass (PS 3701).
+        // This pass composites the bloom pyramid onto the screen with additive blending (blend0 00010001),
+        // producing the milky white transparent veil across the stage.
+        if (submission.ps && submission.ps->number == 3701) {
           return true;
         }
       }

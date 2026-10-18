@@ -25082,7 +25082,7 @@ loc_826E1FEC:
 	// cmpwi cr6,r3,0
 	ctx.cr6.compare<int32_t>(ctx.r3.s32, 0, ctx.xer);
 	// beq cr6,0x826e2008
-	if (ctx.cr6.eq) ctx.r3.s64 = 1;
+	if (ctx.cr6.eq) ctx.r3.s64 = 4;
 	// bl 0x8271be68
 	ctx.lr = 0x826E2008;
 	sub_8271BE68(ctx, base);

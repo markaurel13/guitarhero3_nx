@@ -2696,6 +2696,15 @@ class DrawsVulkanImpl final : public DrawsVulkan {
         return true;
       }
     }
+    // Bloom blur pass (VS 1527, depth base 0x080) - eliminates the white transparent veil.
+    if (REXCVAR_GET(gh3_performance_mode) && p.vs && p.vs->number == 1527 &&
+        (r[gr::XE_GPU_REG_RB_DEPTH_INFO] & 0xFFF) == 0x80) {
+      return true;
+    }
+    // Bloom additive accumulation pass (PS 3701) - eliminates the milky white transparent veil.
+    if (REXCVAR_GET(gh3_performance_mode) && p.ps && p.ps->number == 3701) {
+      return true;
+    }
     // Mode 5 (depth only): the Xenos does not run the pixel shader (IsPixelShaderNeededWithRasterization). Without a PS there are no textures, pixel constants or alpha test,
     // and the pipeline has no fragment stage. The shadow passes work this way, and some arrive with the PS
     // object set to 0.

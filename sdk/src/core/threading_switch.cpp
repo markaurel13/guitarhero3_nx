@@ -332,6 +332,12 @@ bool RexSwitchPinCurrentThreadToCore(int core) {
   return R_SUCCEEDED(svcSetThreadCoreMask(h, core, that_only));
 }
 
+bool RexSwitchSetCurrentThreadCoreMask(int preferred_core, uint64_t mask) {
+  Thread* yo = threadGetSelf();
+  Handle h = (yo != nullptr) ? yo->handle : CUR_THREAD_HANDLE;
+  return R_SUCCEEDED(svcSetThreadCoreMask(h, preferred_core, mask));
+}
+
 /*
  * Which core the calling thread is running on right now. This is what allows counting migrations:
  * it is read on every loop iteration and counted each time it changes. There is no syscall to ask

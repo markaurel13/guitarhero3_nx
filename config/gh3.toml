@@ -31,9 +31,9 @@
 # inicializa e o jogo rebenta na inicializacao grafica.
 # Renderizador Nativo Vulkan Directo (Fase 2 - 60 FPS sin emulacion de CPU)
 sa2_renderer_native = true
-# Escala de render: 360p en modo portatil (640x360, garantiza 60 FPS en GPU incluso con escenario 3D completo)
+# Escala de render: 360p en modo portatil (640x360 escalado limpio 2x a 1280x720 sin letterbox)
 sa2_render_height_handheld = 360
-sa2_render_height_docked = 540
+sa2_render_height_docked = 720
 sa2_gpu_boost = true
 sa2_shader_misses = "shader_misses"
 sa2_native_logical_resolved_size = false
@@ -80,6 +80,7 @@ sa2_native_edram4_fast = true
 sa2_native_conversion_frag = true
 sa2_native_force_1x_msaa = true
 sa2_native_edram4_clear_color0 = true
+sa2_native_depth_samples_x = false
 sa2_native_resolved_read_texels = 0
 sa2_native_zcull_1x_depth = true
 sa2_native_batch_resolve_barriers = true
@@ -197,8 +198,11 @@ ui_theme_desc = "0A0A0AC8"  # painel de descricao
 #          arrisca artefactos nas notas, que e o que estas a olhar.
 #
 # ATENCAO: todos estes cvars sao kRequiresRestart -- mudar exige reabrir o jogo.
-present_effect = "fsr"
-present_fsr_sharpness_reduction = 0.2   # menos = mais nitido
+present_effect = "bilinear"
+present_letterbox = false
+present_safe_area_x = 100
+present_safe_area_y = 100
+present_allow_overscan_cutoff = false
 
 # ---------------------------------------------------------------------------
 # MODS

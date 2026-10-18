@@ -166,6 +166,9 @@ bool RexSwitchSetCurrentThreadCore(int core);
  */
 bool RexSwitchPinCurrentThreadToCore(int core);
 
+/* Sets the affinity mask and preferred core of the current thread. */
+bool RexSwitchSetCurrentThreadCoreMask(int preferred_core, uint64_t mask);
+
 /* Which core the calling thread is running on right now. It can only be asked about oneself. */
 int RexSwitchCurrentCore(void);
 
