@@ -373,6 +373,70 @@ u32 KeQueryPerformanceFrequency_entry() {
   return static_cast<uint32_t>(result);
 }
 
+struct MainWaitTracker {
+  struct Entry {
+    uint32_t caller_lr = 0;
+    const char* wait_fn = nullptr;
+    uint32_t object_type = 0;
+    uint64_t total_ns = 0;
+    uint32_t count = 0;
+    uint64_t max_ns = 0;
+  };
+  std::mutex mutex;
+  std::vector<Entry> entries;
+  std::chrono::steady_clock::time_point last_report = std::chrono::steady_clock::now();
+
+  void Record(uint32_t lr, const char* fn, uint32_t obj_type, uint64_t duration_ns) {
+    if (duration_ns < 100000) return;  // ignore sub-0.1ms waits
+    std::lock_guard<std::mutex> lock(mutex);
+    for (auto& e : entries) {
+      if (e.caller_lr == lr && e.wait_fn == fn) {
+        e.total_ns += duration_ns;
+        e.count++;
+        if (duration_ns > e.max_ns) e.max_ns = duration_ns;
+        return;
+      }
+    }
+    if (entries.size() < 64) {
+      entries.push_back({lr, fn, obj_type, duration_ns, 1, duration_ns});
+    }
+  }
+
+  void ReportIfDue() {
+    auto now = std::chrono::steady_clock::now();
+    std::vector<Entry> to_report;
+    {
+      std::lock_guard<std::mutex> lock(mutex);
+      if (now - last_report < std::chrono::seconds(10)) return;
+      last_report = now;
+      to_report = std::move(entries);
+      entries.clear();
+    }
+    if (to_report.empty()) return;
+    std::sort(to_report.begin(), to_report.end(), [](const Entry& a, const Entry& b) {
+      return a.total_ns > b.total_ns;
+    });
+    uint64_t total_wait_ns = 0;
+    for (const auto& e : to_report) total_wait_ns += e.total_ns;
+    std::string report = fmt::format("[perf] Main wait attribution (10s): total {:.1f} ms |", double(total_wait_ns) / 1e6);
+    size_t count = 0;
+    for (const auto& e : to_report) {
+      if (++count > 6) break;
+      const char* type_str = "obj";
+      if (e.object_type == 1) type_str = "Event";
+      else if (e.object_type == 2) type_str = "Semaphore";
+      else if (e.object_type == 3) type_str = "Mutant";
+      else if (e.object_type == 4) type_str = "Timer";
+      else if (e.object_type == 8) type_str = "CritSec";
+      report += fmt::format(" LR {:08X} ({} {}) {:.1f} ms ({} calls, max {:.1f} ms) |",
+                            e.caller_lr, e.wait_fn, type_str,
+                            double(e.total_ns) / 1e6, e.count, double(e.max_ns) / 1e6);
+    }
+    REXLOG_INFO("{}", report);
+  }
+};
+static MainWaitTracker g_main_wait_tracker;
+
 u32 KeDelayExecutionThread_entry(u32 processor_mode, u32 alertable, mapped_u64 interval_ptr) {
   XThread* thread = XThread::GetCurrentThread();
 
@@ -380,7 +444,21 @@ u32 KeDelayExecutionThread_entry(u32 processor_mode, u32 alertable, mapped_u64 i
     thread->DeliverAPCs();
   }
 
+  const bool is_main = thread && thread->main_thread();
+  uint32_t lr = 0;
+  if (is_main && thread->thread_state() && thread->thread_state()->context()) {
+    lr = static_cast<uint32_t>(thread->thread_state()->context()->lr);
+  }
+  const auto t0 = is_main ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+
   X_STATUS result = thread->Delay(processor_mode, alertable, *interval_ptr);
+
+  if (is_main) {
+    const auto t1 = std::chrono::steady_clock::now();
+    uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+    g_main_wait_tracker.Record(lr, "KeDelayExec", 0, ns);
+    g_main_wait_tracker.ReportIfDue();
+  }
 
   if (alertable && result == X_STATUS_USER_APC) {
     thread->DeliverAPCs();
@@ -827,7 +905,22 @@ uint32_t xeKeWaitForSingleObject(void* object_ptr, uint32_t wait_reason, uint32_
     return X_STATUS_ABANDONED_WAIT_0;
   }
 
+  auto* current_th = XThread::GetCurrentThread();
+  const bool is_main = current_th && current_th->main_thread();
+  uint32_t lr = 0;
+  if (is_main && current_th->thread_state() && current_th->thread_state()->context()) {
+    lr = static_cast<uint32_t>(current_th->thread_state()->context()->lr);
+  }
+  const auto t0 = is_main ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+
   X_STATUS result = object->Wait(wait_reason, processor_mode, alertable, timeout_ptr);
+
+  if (is_main) {
+    const auto t1 = std::chrono::steady_clock::now();
+    uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+    g_main_wait_tracker.Record(lr, "KeWaitSingle", uint32_t(object->type()), ns);
+    g_main_wait_tracker.ReportIfDue();
+  }
 
   if (alertable && result == X_STATUS_USER_APC) {
     XThread::GetCurrentThread()->DeliverAPCs();
@@ -839,20 +932,22 @@ uint32_t xeKeWaitForSingleObject(void* object_ptr, uint32_t wait_reason, uint32_
 u32 KeWaitForSingleObject_entry(mapped_void object_ptr, u32 wait_reason, u32 processor_mode,
                                 u32 alertable, mapped_u64 timeout_ptr) {
   uint64_t timeout = timeout_ptr ? static_cast<uint64_t>(*timeout_ptr) : 0u;
-  // REXKRNL_IMPORT_TRACE("KeWaitForSingleObject", "obj={:#x} reason={} mode={} alertable={}
-  // timeout={}",
-  // object_ptr.guest_address(), (uint32_t)wait_reason,
-  //(uint32_t)processor_mode, (uint32_t)alertable,
-  // timeout_ptr ? (int64_t)timeout : -1);
   auto result = xeKeWaitForSingleObject(object_ptr, wait_reason, processor_mode, alertable,
                                         timeout_ptr ? &timeout : nullptr);
-  // REXKRNL_IMPORT_RESULT("KeWaitForSingleObject", "{:#x}", result);
   return result;
 }
 
 u32 NtWaitForSingleObjectEx_entry(u32 object_handle, u32 wait_mode, u32 alertable,
                                   mapped_u64 timeout_ptr) {
   X_STATUS result = X_STATUS_SUCCESS;
+
+  auto* current_th = XThread::GetCurrentThread();
+  const bool is_main = current_th && current_th->main_thread();
+  uint32_t lr = 0;
+  if (is_main && current_th->thread_state() && current_th->thread_state()->context()) {
+    lr = static_cast<uint32_t>(current_th->thread_state()->context()->lr);
+  }
+  const auto t0 = is_main ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 
   auto object = REX_KERNEL_OBJECTS()->LookupObject<XObject>(object_handle);
   if (object) {
@@ -865,6 +960,13 @@ u32 NtWaitForSingleObjectEx_entry(u32 object_handle, u32 wait_mode, u32 alertabl
     result = X_STATUS_INVALID_HANDLE;
   }
 
+  if (is_main) {
+    const auto t1 = std::chrono::steady_clock::now();
+    uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+    g_main_wait_tracker.Record(lr, "NtWaitSingle", object ? uint32_t(object->type()) : 0, ns);
+    g_main_wait_tracker.ReportIfDue();
+  }
+
   return result;
 }
 
@@ -872,6 +974,14 @@ u32 KeWaitForMultipleObjects_entry(u32 count, mapped_u32 objects_ptr, u32 wait_t
                                    u32 wait_reason, u32 processor_mode, u32 alertable,
                                    mapped_u64 timeout_ptr, mapped_void wait_block_array_ptr) {
   assert_true(wait_type <= 1);
+
+  auto* current_th = XThread::GetCurrentThread();
+  const bool is_main = current_th && current_th->main_thread();
+  uint32_t lr = 0;
+  if (is_main && current_th->thread_state() && current_th->thread_state()->context()) {
+    lr = static_cast<uint32_t>(current_th->thread_state()->context()->lr);
+  }
+  const auto t0 = is_main ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 
   std::vector<object_ref<XObject>> objects;
   for (uint32_t n = 0; n < count; n++) {
@@ -891,6 +1001,14 @@ u32 KeWaitForMultipleObjects_entry(u32 count, mapped_u32 objects_ptr, u32 wait_t
   if (alertable && result == X_STATUS_USER_APC) {
     XThread::GetCurrentThread()->DeliverAPCs();
   }
+
+  if (is_main) {
+    const auto t1 = std::chrono::steady_clock::now();
+    uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+    g_main_wait_tracker.Record(lr, "KeWaitMultiple", 0, ns);
+    g_main_wait_tracker.ReportIfDue();
+  }
+
   return result;
 }
 
@@ -898,6 +1016,14 @@ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, rex::be<uint32_t>* handles
                                       uint32_t wait_type, uint32_t wait_mode, uint32_t alertable,
                                       uint64_t* timeout_ptr) {
   assert_true(wait_type <= 1);
+
+  auto* current_th = XThread::GetCurrentThread();
+  const bool is_main = current_th && current_th->main_thread();
+  uint32_t lr = 0;
+  if (is_main && current_th->thread_state() && current_th->thread_state()->context()) {
+    lr = static_cast<uint32_t>(current_th->thread_state()->context()->lr);
+  }
+  const auto t0 = is_main ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 
   std::vector<object_ref<XObject>> objects;
   for (uint32_t n = 0; n < count; n++) {
@@ -914,6 +1040,14 @@ uint32_t xeNtWaitForMultipleObjectsEx(uint32_t count, rex::be<uint32_t>* handles
   if (alertable && result == X_STATUS_USER_APC) {
     XThread::GetCurrentThread()->DeliverAPCs();
   }
+
+  if (is_main) {
+    const auto t1 = std::chrono::steady_clock::now();
+    uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+    g_main_wait_tracker.Record(lr, "NtWaitMultiple", 0, ns);
+    g_main_wait_tracker.ReportIfDue();
+  }
+
   return result;
 }
 
@@ -928,6 +1062,14 @@ u32 NtSignalAndWaitForSingleObjectEx_entry(u32 signal_handle, u32 wait_handle, u
                                            u32 r6, mapped_u64 timeout_ptr) {
   X_STATUS result = X_STATUS_SUCCESS;
 
+  auto* current_th = XThread::GetCurrentThread();
+  const bool is_main = current_th && current_th->main_thread();
+  uint32_t lr = 0;
+  if (is_main && current_th->thread_state() && current_th->thread_state()->context()) {
+    lr = static_cast<uint32_t>(current_th->thread_state()->context()->lr);
+  }
+  const auto t0 = is_main ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+
   auto signal_object = REX_KERNEL_OBJECTS()->LookupObject<XObject>(signal_handle);
   auto wait_object = REX_KERNEL_OBJECTS()->LookupObject<XObject>(wait_handle);
   if (signal_object && wait_object) {
@@ -936,6 +1078,13 @@ u32 NtSignalAndWaitForSingleObjectEx_entry(u32 signal_handle, u32 wait_handle, u
                                     timeout_ptr ? &timeout : nullptr);
   } else {
     result = X_STATUS_INVALID_HANDLE;
+  }
+
+  if (is_main) {
+    const auto t1 = std::chrono::steady_clock::now();
+    uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+    g_main_wait_tracker.Record(lr, "NtSignalAndWait", wait_object ? uint32_t(wait_object->type()) : 0, ns);
+    g_main_wait_tracker.ReportIfDue();
   }
 
   if (alertable && result == X_STATUS_USER_APC) {

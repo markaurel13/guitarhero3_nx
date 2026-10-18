@@ -14,6 +14,8 @@
 
 #if REX_PLATFORM_SWITCH
 extern "C" {
+typedef void (*RexSwitchApmLogCallback)(const char* msg);
+void RexSwitchApmSetLogCallback(RexSwitchApmLogCallback cb);
 void RexSwitchApmRequestGpuMhz(int mhz);
 void RexSwitchApmApply(void);
 }
@@ -27,8 +29,11 @@ namespace sa2::enh {
 void ApplyGpuBoost() {
   if (!g_gpu_boost.active) return;
 #if REX_PLATFORM_SWITCH
+  RexSwitchApmSetLogCallback([](const char* msg) {
+    REXLOG_INFO("{}", msg);
+  });
   RexSwitchApmRequestGpuMhz(460);
-  RexSwitchApmApply();  // logs what it did on stderr (rex_stderr.log)
+  RexSwitchApmApply();
   g_gpu_boost.Use();
 #endif
 }

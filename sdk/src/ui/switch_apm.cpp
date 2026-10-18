@@ -58,9 +58,31 @@
 #include <switch.h>
 
 #include <atomic>
+#include <cstdarg>
 #include <cstdio>
+#include <cstring>
+
+static RexSwitchApmLogCallback g_apm_log_cb = nullptr;
+
+extern "C" void RexSwitchApmSetLogCallback(RexSwitchApmLogCallback cb) {
+  g_apm_log_cb = cb;
+}
 
 namespace {
+
+static void ApmLog(const char* fmt, ...) {
+  char buf[512];
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, args);
+  va_end(args);
+  size_t len = std::strlen(buf);
+  if (len > 0 && buf[len - 1] == '\n') buf[len - 1] = '\0';
+  std::fprintf(stderr, "%s\n", buf);
+  if (g_apm_log_cb) {
+    g_apm_log_cb(buf);
+  }
+}
 
 std::atomic<int> g_request{0};
 std::atomic<bool> g_done{false};
@@ -221,11 +243,11 @@ extern "C" void RexSwitchApmApply(void) {
 
   ApmPerformanceMode mode = ApmPerformanceMode_Invalid;
   if (R_FAILED(apmGetPerformanceMode(&mode))) {
-    std::fprintf(stderr, "[apm] could not read the performance mode; nothing is touched\n");
+    ApmLog("[apm] could not read the performance mode; nothing is touched\n");
     return;
   }
   if (mode != ApmPerformanceMode_Normal) {
-    std::fprintf(stderr, "[apm] the console is docked (mode %d): nothing is requested\n", int(mode));
+    ApmLog("[apm] the console is docked (mode %d): nothing is requested\n", int(mode));
     return;
   }
 
@@ -234,13 +256,12 @@ extern "C" void RexSwitchApmApply(void) {
 
   u32 gpu0 = 0, emc0 = 0;
   if (!ReadClocks(gpu0, emc0)) {
-    std::fprintf(stderr,
-                 "[apm] cannot read the real clocks (clkrst): NOTHING is changed, because without "
-                 "checking there is no way to guarantee the memory stays where it is\n");
+    ApmLog("[apm] cannot read the real clocks (clkrst): NOTHING is changed, because without "
+           "checking there is no way to guarantee the memory stays where it is\n");
     return;
   }
-  std::fprintf(stderr, "[apm] starting point: config 0x%08X, GPU %.1f MHz, memory %.1f MHz\n",
-               has_original ? config_original : 0u, double(gpu0) / 1e6, double(emc0) / 1e6);
+  ApmLog("[apm] starting point: config 0x%08X, GPU %.1f MHz, memory %.1f MHz\n",
+         has_original ? config_original : 0u, double(gpu0) / 1e6, double(emc0) / 1e6);
 
   const u32 goal_gpu_hz = u32(mhz) * 1000000u;
 
@@ -263,12 +284,11 @@ extern "C" void RexSwitchApmApply(void) {
     const bool gpu_rose = gpu1 + kMarginHz >= goal_gpu_hz;
     if (gpu_rose && still_memory) {
       if (!still_of_truth) {
-        std::fprintf(stderr,
-                     "[apm] 0x%08X raises the memory to %.1f MHz, but sa2_switch_ram_1600 is "
-                     "true: it is accepted and the memory is NOT watched\n",
-                     c.config, double(emc1) / 1e6);
-        std::fprintf(stderr, "[apm] SET 0x%08X: GPU %.1f MHz (was %.1f), memory %.1f MHz\n",
-                     c.config, double(gpu1) / 1e6, double(gpu0) / 1e6, double(emc1) / 1e6);
+        ApmLog("[apm] 0x%08X raises the memory to %.1f MHz, but sa2_switch_ram_1600 is "
+               "true: it is accepted and the memory is NOT watched\n",
+               c.config, double(emc1) / 1e6);
+        ApmLog("[apm] SET 0x%08X: GPU %.1f MHz (was %.1f), memory %.1f MHz\n",
+               c.config, double(gpu1) / 1e6, double(gpu0) / 1e6, double(emc1) / 1e6);
         return;  // watchdog not armed: lowering it would fight what the cvar asks for
       }
       /*
@@ -276,17 +296,16 @@ extern "C" void RexSwitchApmApply(void) {
        * on a mode change or when waking from sleep.
        */
       g_emc_original.store(emc0, std::memory_order_relaxed);
-      std::fprintf(stderr,
-                   "[apm] SET configuration 0x%08X (table: GPU %d, EMC %d): GPU %.1f MHz (was "
-                   "%.1f) and the memory stays at %.1f MHz, checked for %.1f s in a row; "
-                   "it stays watched\n",
-                   c.config, c.mhz, c.emc, double(gpu1) / 1e6, double(gpu0) / 1e6,
-                   double(emc1) / 1e6, double(kPollStepNs) * kPollSteps / 1e9);
+      ApmLog("[apm] SET configuration 0x%08X (table: GPU %d, EMC %d): GPU %.1f MHz (was "
+             "%.1f) and the memory stays at %.1f MHz, checked for %.1f s in a row; "
+             "it stays watched\n",
+             c.config, c.mhz, c.emc, double(gpu1) / 1e6, double(gpu0) / 1e6,
+             double(emc1) / 1e6, double(kPollStepNs) * kPollSteps / 1e9);
       return;
     }
-    std::fprintf(stderr, "[apm] discarded 0x%08X: GPU %.1f MHz, memory %.1f MHz (%s)\n", c.config,
-                 double(gpu1) / 1e6, double(emc1) / 1e6,
-                 !gpu_rose ? "the GPU does not reach the requested clock" : "IT MOVES THE MEMORY");
+    ApmLog("[apm] discarded 0x%08X: GPU %.1f MHz, memory %.1f MHz (%s)\n", c.config,
+           double(gpu1) / 1e6, double(emc1) / 1e6,
+           !gpu_rose ? "the GPU does not reach the requested clock" : "IT MOVES THE MEMORY");
   }
 
   /*
@@ -300,16 +319,15 @@ extern "C" void RexSwitchApmApply(void) {
   if (has_original && R_SUCCEEDED(apmSetPerformanceConfiguration(mode, config_original))) {
     u32 gpu2 = 0, emc2 = 0;
     StillMemoryDuring(emc0, gpu2, emc2);
-    std::fprintf(stderr,
-                 "[apm] this firmware has NO %d MHz configuration that leaves the memory "
-                 "at %.1f MHz; going back to the original 0x%08X (GPU %.1f MHz, memory %.1f MHz).\n"
-                 "[apm] IF YOU PREFER THE HIGH GPU CLOCK EVEN IF THE RAM GOES UP TO 1600: set "
-                 "sa2_switch_ram_1600 = true in sa2.toml\n",
-                 mhz, double(emc0) / 1e6, config_original, double(gpu2) / 1e6, double(emc2) / 1e6);
+    ApmLog("[apm] this firmware has NO %d MHz configuration that leaves the memory "
+           "at %.1f MHz; going back to the original 0x%08X (GPU %.1f MHz, memory %.1f MHz).\n"
+           "[apm] IF YOU PREFER THE HIGH GPU CLOCK EVEN IF THE RAM GOES UP TO 1600: set "
+           "sa2_switch_ram_1600 = true in sa2.toml\n",
+           mhz, double(emc0) / 1e6, config_original, double(gpu2) / 1e6, double(emc2) / 1e6);
   } else {
-    std::fprintf(stderr, "[apm] no %d MHz configuration worked and the original could NOT be restored: "
-                         "check the clocks in the overlay\n",
-                 mhz);
+    ApmLog("[apm] no %d MHz configuration worked and the original could NOT be restored: "
+           "check the clocks in the overlay\n",
+           mhz);
   }
 }
 
@@ -333,17 +351,15 @@ extern "C" void RexSwitchApmWatch(void) {
   const bool drop = PinMemory(emc0);
   const int n = g_fixes_emc.fetch_add(1, std::memory_order_relaxed) + 1;
   if (!g_warning_emc.exchange(true)) {
-    std::fprintf(stderr,
-                 "[apm] the memory had gone up by itself to %.1f MHz (t=%d s): lowering it to %.1f with clkrst "
-                 "(%s)\n",
-                 double(emc) / 1e6, tic, double(emc0) / 1e6, drop ? "accepted" : "REJECTED");
+    ApmLog("[apm] the memory had gone up by itself to %.1f MHz (t=%d s): lowering it to %.1f with clkrst "
+           "(%s)\n",
+           double(emc) / 1e6, tic, double(emc0) / 1e6, drop ? "accepted" : "REJECTED");
   }
   if (!drop || n >= kMaxFixesEmc) {
     g_up_given_emc.store(true, std::memory_order_relaxed);
-    std::fprintf(stderr,
-                 "[apm] giving up on the memory after %d attempt(s): this firmware "
-                 "reimposes it. The GPU stays at the requested clock; the RAM at whatever the system dictates\n",
-                 n);
+    ApmLog("[apm] giving up on the memory after %d attempt(s): this firmware "
+           "reimposes it. The GPU stays at the requested clock; the RAM at whatever the system dictates\n",
+           n);
   }
 }
 
@@ -358,5 +374,5 @@ extern "C" void RexSwitchApmWatch(void) {}
 extern "C" void RexSwitchApmCpuBoost(int mode) {
   if (mode <= 0) return;
   const Result rc = appletSetCpuBoostMode(ApmCpuBoostMode(mode));
-  std::fprintf(stderr, "[apm] appletSetCpuBoostMode(%d) -> 0x%X\n", mode, unsigned(rc));
+  ApmLog("[apm] appletSetCpuBoostMode(%d) -> 0x%X\n", mode, unsigned(rc));
 }

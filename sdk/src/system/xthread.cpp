@@ -520,15 +520,14 @@ X_STATUS XThread::Create() {
     REXLOG_INFO("[nx] Thread '{}' priority set to {:#x}", thread_name_, target_prio);
     if (guest_thread_) {
       if (main_thread_) {
-        // Main game thread: runs on Core 0 and Core 2 (NEVER Core 1, which is strictly reserved for GPU ring native).
+        // Main game thread: preferred Core 0, can use Core 2 (mask 0x5, exclusive core pins here).
         RexSwitchSetCurrentThreadCoreMask(0, (1ull << 0) | (1ull << 2));
-      } else if (thread_name_.find("826E1F90") != std::string_view::npos) {
-        // Audio stream feeder: runs on Core 2 and Core 0 (NEVER Core 1).
-        RexSwitchSetCurrentThreadCoreMask(2, (1ull << 0) | (1ull << 2));
       } else {
-        // Guest workers (XT0054, XT0068, XT006C, XT0070, etc.):
-        // Prefer Core 2, can use Core 0 (NEVER Core 1).
-        RexSwitchSetCurrentThreadCoreMask(2, (1ull << 0) | (1ull << 2));
+        // Guest workers (XT00CC_826E1F90, XT0054, XT0068, XT006C, XT0070, etc.):
+        // Preferred Core 2, can run on Core 0, Core 1, and Core 2 (mask 0x7).
+        // On Core 1, the GPU ring thread (priority 0x28) strictly preempts workers (priority 0x3B).
+        // This utilizes the ~78% idle CPU of Core 1 to prevent worker starvation without hindering the GPU ring.
+        RexSwitchSetCurrentThreadCoreMask(2, (1ull << 0) | (1ull << 1) | (1ull << 2));
       }
     }
 #endif

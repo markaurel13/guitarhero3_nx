@@ -7,6 +7,9 @@
 extern "C" {
 #endif
 
+typedef void (*RexSwitchApmLogCallback)(const char* msg);
+void RexSwitchApmSetLogCallback(RexSwitchApmLogCallback cb);
+
 /*
  * GPU MHz to request in handheld mode: 0 = touch nothing, 384 or 460. Called before
  * RexSwitchApmApply.

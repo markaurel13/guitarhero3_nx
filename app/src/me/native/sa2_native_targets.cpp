@@ -2615,6 +2615,12 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       const auto now = std::chrono::steady_clock::now();
       if (last_swap_ != std::chrono::steady_clock::time_point{}) {
         const double ms = std::chrono::duration<double, std::milli>(now - last_swap_).count();
+        const int vb = int(std::round(ms / 16.6667));
+        if (vb <= 1) ++swap_vblank_counts_[0];
+        else if (vb == 2) ++swap_vblank_counts_[1];
+        else if (vb == 3) ++swap_vblank_counts_[2];
+        else if (vb == 4) ++swap_vblank_counts_[3];
+        else ++swap_vblank_counts_[4];
         // Frames over 45 ms go to stack sampling. The window starts one normal frame (33 ms) earlier, because
         // the game thread prepares the frame ahead of the ring. Ticks at 19.2 MHz.
         if (ms > 45.0) {
@@ -10232,6 +10238,21 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       SA2_REPORT_RING("[GH3-PERF] Redundant resolves skipped in report interval: {}", gh3_skipped_resolves_);
       gh3_skipped_resolves_ = 0;
     }
+    const uint64_t total_pacing_swaps = swap_vblank_counts_[0] + swap_vblank_counts_[1] +
+                                        swap_vblank_counts_[2] + swap_vblank_counts_[3] +
+                                        swap_vblank_counts_[4];
+    if (total_pacing_swaps > 0) {
+      SA2_REPORT_RING(
+          "[pacing] Swaps: {} | 1v (60fps): {} ({:.1f}%) | 2v (30fps): {} ({:.1f}%) | "
+          "3v (20fps): {} ({:.1f}%) | 4v (15fps): {} ({:.1f}%) | 5v+ (<=12fps): {} ({:.1f}%)",
+          total_pacing_swaps,
+          swap_vblank_counts_[0], double(swap_vblank_counts_[0]) * 100.0 / total_pacing_swaps,
+          swap_vblank_counts_[1], double(swap_vblank_counts_[1]) * 100.0 / total_pacing_swaps,
+          swap_vblank_counts_[2], double(swap_vblank_counts_[2]) * 100.0 / total_pacing_swaps,
+          swap_vblank_counts_[3], double(swap_vblank_counts_[3]) * 100.0 / total_pacing_swaps,
+          swap_vblank_counts_[4], double(swap_vblank_counts_[4]) * 100.0 / total_pacing_swaps);
+      std::fill(std::begin(swap_vblank_counts_), std::end(swap_vblank_counts_), 0);
+    }
     ReportOverlapsEDRAM();
     ReportWaitsGpu();
     // sa2-nx render resolution / MSAA: what the scaled images take (only once either has been used).
@@ -10982,6 +11003,7 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
   uint64_t rejections_ = 0;
   std::unordered_set<uint32_t> warned_;
   uint64_t gh3_skipped_resolves_ = 0;
+  uint64_t swap_vblank_counts_[5] = {};
 };
 
 }  // namespace

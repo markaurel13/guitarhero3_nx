@@ -1339,6 +1339,30 @@ size_t RexSwitchPerfGetTopThreads(char* out, size_t out_max) {
   return written;
 }
 
+
+size_t RexSwitchPerfGetCoreLoads(char* out, size_t out_max) {
+  if (!out || out_max == 0) return 0;
+  out[0] = '\0';
+  double core_cpu[3] = {0.0, 0.0, 0.0};
+  double unpinned_cpu = 0.0;
+  for (size_t i = 0; i < kMaxThreads; ++i) {
+    if (g_slots[i].handle.load() && g_slots[i].cpu >= 0.5) {
+      s32 pref = -1;
+      u64 mask = 0;
+      if (R_SUCCEEDED(svcGetThreadCoreMask(&pref, &mask, g_slots[i].handle.load()))) {
+        if (mask == 1) core_cpu[0] += g_slots[i].cpu;
+        else if (mask == 2) core_cpu[1] += g_slots[i].cpu;
+        else if (mask == 4) core_cpu[2] += g_slots[i].cpu;
+        else unpinned_cpu += g_slots[i].cpu;
+      }
+    }
+  }
+  int n = snprintf(out, out_max,
+                   "Core 0: %.1f%%, Core 1: %.1f%%, Core 2: %.1f%%, Shared/Workers (0x7/0x5): %.1f%%",
+                   core_cpu[0], core_cpu[1], core_cpu[2], unpinned_cpu);
+  return (n > 0) ? size_t(n) : 0;
+}
+
 void RexSwitchPerfResolution(unsigned w, unsigned h) {
   g_resolution.store(((w & 0xFFFF) << 16) | (h & 0xFFFF), std::memory_order_relaxed);
 }
