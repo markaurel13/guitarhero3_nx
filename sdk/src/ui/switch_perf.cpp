@@ -421,10 +421,12 @@ void ApplyExclusiveCore(FILE* f, const std::vector<size_t>& order) {
     // Light guest threads (audio, streaming: under 35 % of a core) may use the main thread's spare time on K,
     // which leaves cores 0-1 to the ring and render threads. Same priority as the main thread (0x3B): they
     // only run on K while it waits.
-    if (light &&
-        (std::strstr(g_slots[i].name, "XT") != nullptr || std::strstr(g_slots[i].name, "Main") != nullptr ||
-         std::strstr(g_slots[i].name, "XThread") != nullptr) && g_slots[i].cpu < 35.0) {
-      if (mask == 0x6 || mask == 0x5 || mask == 0x3) svcSetThreadCoreMask(h, -3, mask | bit);
+    // Guest threads (XT...) may use the main thread's spare time on Core K (Core 0).
+    // Main runs at priority 0x2C and will preempt guest workers (0x3B) instantly whenever it has work.
+    if (light && (std::strstr(g_slots[i].name, "XT") != nullptr || std::strstr(g_slots[i].name, "XThread") != nullptr)) {
+      if (!(mask & bit)) {
+        svcSetThreadCoreMask(h, -3, mask | bit);
+      }
       continue;
     }
     if (!(mask & bit) || mask == bit) continue;
