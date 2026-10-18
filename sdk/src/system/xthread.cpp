@@ -387,8 +387,9 @@ int SwitchPriorityFor(bool guest_thread, std::string_view name) {
     }
 
     // Guest audio mixer thread (XT00D0_826E1F90):
-    // Runs above workers (0x2E) so it never starves audio packets.
-    if (name.find("826E1F90") != std::string_view::npos) {
+    // Only the primary audio mixer thread (XT00D0) gets 0x2D.
+    // Secondary audio stream/update threads (XT00CC, XT00C8, etc.) stay at 0x3B so they never preempt workers (0x2E).
+    if (name.find("XT00D0") != std::string_view::npos) {
       return 0x2D;  // 45: Above workers (0x2E), below native Audio DSP (0x2B)
     }
 
@@ -537,10 +538,16 @@ X_STATUS XThread::Create() {
         RexSwitchSetCurrentThreadCoreMask(0, (1ull << 0) | (1ull << 2));
       } else {
         // Guest workers (XT00CC_826E1F90, XT0054, XT0068, XT006C, XT0070, etc.):
-        // Preferred Core 2, can run on Core 0, Core 1, and Core 2 (mask 0x7).
-        // On Core 1, the GPU ring thread (priority 0x28) strictly preempts workers (priority 0x3B).
-        // This utilizes the ~78% idle CPU of Core 1 to prevent worker starvation without hindering the GPU ring.
-        RexSwitchSetCurrentThreadCoreMask(2, (1ull << 0) | (1ull << 1) | (1ull << 2));
+        // Preferred Core 2 by default, but route Worker 1 (XT006C) to Core 1.
+        // Core 1 has ~58% idle CPU headroom (GPU ring only uses ~42% at priority 0x28).
+        // On Core 1, GPU ring (0x28) preempts XT006C (0x2E) whenever GPU work arrives,
+        // and XT006C runs freely on Core 1 during the remaining 58% of time, completely
+        // balancing load across cores and eliminating Core 2 oversubscription.
+        int preferred_core = 2;
+        if (thread_name_.find("XT006C") != std::string_view::npos) {
+          preferred_core = 1;
+        }
+        RexSwitchSetCurrentThreadCoreMask(preferred_core, (1ull << 0) | (1ull << 1) | (1ull << 2));
       }
     }
 #endif

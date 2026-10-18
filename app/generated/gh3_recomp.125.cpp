@@ -25035,6 +25035,9 @@ DEFINE_REX_FUNC(sub_826E1F90) {
 	REX_STORE_U8(ctx.r31.u32 + 264, ctx.r11.u8);
 loc_826E1FAC:
 	REX_LOOP_BARRIER();
+#if defined(__SWITCH__)
+	RexSwitchSleep(1000000);
+#endif
 	// lwz r3,276(r31)
 	ctx.r3.u64 = REX_LOAD_U32(ctx.r31.u32 + 276);
 	// cmplwi cr6,r3,0
