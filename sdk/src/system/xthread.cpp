@@ -367,6 +367,12 @@ int SwitchPriorityFor(bool guest_thread, std::string_view name) {
       return 0x2A;  // 42: Highest priority for main game thread (above GPU ring and workers, never preempted!)
     }
 
+    // Task workers that Main waits for (LR 823ECEE8, 823ECF94):
+    // Prioritized at 0x2E (above 0x3B spinners) so dispatched tasks run immediately without thread contention!
+    if (name.find("823ECC00") != std::string_view::npos) {
+      return 0x2E;  // 46: Priority for task workers XT0068, XT006C, XT0070
+    }
+
     if (name.find("824E4FF8") != std::string_view::npos) {
       return 0x2D;  // 45: Horizon priority for render workers XT0044/XT0048 (above 0x3B workers)
     }
@@ -379,6 +385,14 @@ int SwitchPriorityFor(bool guest_thread, std::string_view name) {
     if (name.starts_with("Audio") || name.starts_with("XMA")) {
       return REX_SWITCH_PRIO_AUDIO;  // 0x2B: Top audio DSP priority!
     }
+
+    // Heavy spin/polling threads (XT00D0_826E1F90 @ 54% CPU, XT0054_82384DE0 @ 20% CPU):
+    // Lowered to 0x3C (below 0x3B round-robin) so they yield whenever Main or task workers need CPU cycles.
+    if (name.find("826E1F90") != std::string_view::npos ||
+        name.find("82384DE0") != std::string_view::npos) {
+      return 0x3C;  // 60: Below 0x3B
+    }
+
     return REX_SWITCH_PRIO_GUEST;
   }
   // set_name() stores the name with the handle appended ("Audio Worker (F8000014)"),

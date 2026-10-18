@@ -26,7 +26,7 @@ REXCVAR_DEFINE_BOOL(sa2_noncpu_enhancements, true, "SA2 enhancements",
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 // Read by the SDK's Switch profiler (sdk/src/ui/switch_perf.cpp) besides logs/rex/stacks_profile.flag: the CPU
 // sampler (1 ms, every thread; logs/rex/rex_profile.log). On in the A/B and profile configs, off in the default.
-REXCVAR_DEFINE_BOOL(switch_profile_stacks, false, "SA2 enhancements",
+REXCVAR_DEFINE_BOOL(switch_profile_stacks, true, "SA2 enhancements",
                     "Switch: CPU stack sampling every 1 ms (rex_profile.log), as logs/rex/stacks_profile.flag does")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 // 2026-10-08: the profiler's 10-second report (logs/rex/rex_profile.log) at all. Off in the release's built-in

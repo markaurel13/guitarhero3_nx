@@ -387,7 +387,7 @@ struct MainWaitTracker {
   std::chrono::steady_clock::time_point last_report = std::chrono::steady_clock::now();
 
   void Record(uint32_t lr, const char* fn, uint32_t obj_type, uint64_t duration_ns) {
-    if (duration_ns < 100000) return;  // ignore sub-0.1ms waits
+    if (duration_ns < 1000) return;  // capture anything >= 1us
     std::lock_guard<std::mutex> lock(mutex);
     for (auto& e : entries) {
       if (e.caller_lr == lr && e.wait_fn == fn) {
@@ -397,7 +397,7 @@ struct MainWaitTracker {
         return;
       }
     }
-    if (entries.size() < 64) {
+    if (entries.size() < 128) {
       entries.push_back({lr, fn, obj_type, duration_ns, 1, duration_ns});
     }
   }
@@ -421,7 +421,7 @@ struct MainWaitTracker {
     std::string report = fmt::format("[perf] Main wait attribution (10s): total {:.1f} ms |", double(total_wait_ns) / 1e6);
     size_t count = 0;
     for (const auto& e : to_report) {
-      if (++count > 6) break;
+      if (++count > 10) break;
       const char* type_str = "obj";
       if (e.object_type == 1) type_str = "Event";
       else if (e.object_type == 2) type_str = "Semaphore";
@@ -436,6 +436,11 @@ struct MainWaitTracker {
   }
 };
 static MainWaitTracker g_main_wait_tracker;
+
+extern "C" void RexMainWaitTrackerRecord(uint32_t lr, const char* fn, uint32_t obj_type, uint64_t duration_ns) {
+  g_main_wait_tracker.Record(lr, fn, obj_type, duration_ns);
+  g_main_wait_tracker.ReportIfDue();
+}
 
 u32 KeDelayExecutionThread_entry(u32 processor_mode, u32 alertable, mapped_u64 interval_ptr) {
   XThread* thread = XThread::GetCurrentThread();

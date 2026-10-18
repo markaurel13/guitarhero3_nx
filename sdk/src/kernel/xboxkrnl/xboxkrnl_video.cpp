@@ -33,6 +33,7 @@
 #include <rex/system/export_resolver.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xtypes.h>
+#include <rex/system/xthread.h>
 #include <rex/ui/flags.h>
 
 REXCVAR_DEFINE_BOOL(vblank_per_swap, false, "GPU",
@@ -488,6 +489,8 @@ bool WaitSwapForVblank(uint64_t& last_swap, const std::atomic<bool>& running) {
   return false;
 }
 
+extern "C" void RexMainWaitTrackerRecord(uint32_t lr, const char* fn, uint32_t obj_type, uint64_t duration_ns);
+
 void VdSwap_entry(mapped_void buffer_ptr,      // ptr into primary ringbuffer
                   mapped_void fetch_ptr,       // frontbuffer Direct3D 9 texture header fetch
                   mapped_void unk2,            // system writeback ptr
@@ -496,6 +499,10 @@ void VdSwap_entry(mapped_void buffer_ptr,      // ptr into primary ringbuffer
                   mapped_u32 frontbuffer_ptr,  // ptr to frontbuffer address
                   mapped_u32 texture_format_ptr, mapped_u32 color_space_ptr, mapped_u32 width,
                   mapped_u32 height) {
+  auto* current_th = XThread::GetCurrentThread();
+  const bool is_main = current_th && current_th->main_thread();
+  const auto t0 = is_main ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+
   if (const int32_t delay = REXCVAR_GET(diag_vdswap_delay_us); delay > 0) [[unlikely]] {
     // Busy, like the game's own work (a sleep would round to the host timer).
     const auto until = std::chrono::steady_clock::now() + std::chrono::microseconds(delay);
@@ -576,6 +583,18 @@ void VdSwap_entry(mapped_void buffer_ptr,      // ptr into primary ringbuffer
     dwords[i] = xenos::MakePacketType2();
   }
   g_vd_swaps.fetch_add(1, std::memory_order_release);
+
+  if (is_main) {
+    const auto t1 = std::chrono::steady_clock::now();
+    uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+    if (ns >= 1000) {
+      uint32_t lr = 0x824B3170;
+      if (current_th->thread_state() && current_th->thread_state()->context()) {
+        lr = static_cast<uint32_t>(current_th->thread_state()->context()->lr);
+      }
+      RexMainWaitTrackerRecord(lr, "VdSwap", 0, ns);
+    }
+  }
 }
 
 void RegisterVideoExports(rex::runtime::ExportResolver* export_resolver,

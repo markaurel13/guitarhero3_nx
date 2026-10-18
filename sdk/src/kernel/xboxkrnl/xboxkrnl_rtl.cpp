@@ -13,6 +13,7 @@
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 
 #include <algorithm>
+#include <chrono>
 #include <string>
 
 #include <rex/chrono/chrono_steady_cast.h>
@@ -425,6 +426,8 @@ inline uint32_t CriticalSectionOwner(PPCContext& ctx, uint8_t* base) {
 }
 }  // namespace
 
+extern "C" void RexMainWaitTrackerRecord(uint32_t lr, const char* fn, uint32_t obj_type, uint64_t duration_ns);
+
 // default_spin: the tries for a section initialised without a spin count (kernel_critsec_spin).
 static void xeEnterCriticalSection(X_RTL_CRITICAL_SECTION* cs, uint32_t cur_thread, uint32_t default_spin) {
   REX_SYS_CENSUS(rex::syscount::kCensusCritSecEnter, 1);
@@ -443,6 +446,10 @@ static void xeEnterCriticalSection(X_RTL_CRITICAL_SECTION* cs, uint32_t cur_thre
     return;
   }
 
+  XThread* cur_th = XThread::GetCurrentThread();
+  const bool is_main = cur_th && cur_th->main_thread();
+  const auto t0 = is_main ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+
   // Spin loop (test, then test-and-set, with a CPU yield between tries so the owner's release is not slowed).
   while (spin_count--) {
     if (*reinterpret_cast<volatile int32_t*>(&cs->lock_count) == -1 &&
@@ -450,6 +457,17 @@ static void xeEnterCriticalSection(X_RTL_CRITICAL_SECTION* cs, uint32_t cur_thre
       // Acquired.
       cs->owning_thread = cur_thread;
       cs->recursion_count = 1;
+      if (is_main) {
+        const auto t1 = std::chrono::steady_clock::now();
+        uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+        if (ns >= 1000) {
+          uint32_t lr = 0;
+          if (cur_th->thread_state() && cur_th->thread_state()->context()) {
+            lr = static_cast<uint32_t>(cur_th->thread_state()->context()->lr);
+          }
+          RexMainWaitTrackerRecord(lr, "CritSec_Spin", 8, ns);
+        }
+      }
       return;
     }
 #if defined(__aarch64__)
@@ -466,6 +484,17 @@ static void xeEnterCriticalSection(X_RTL_CRITICAL_SECTION* cs, uint32_t cur_thre
   assert_true(cs->owning_thread == 0);
   cs->owning_thread = cur_thread;
   cs->recursion_count = 1;
+  if (is_main) {
+    const auto t1 = std::chrono::steady_clock::now();
+    uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+    if (ns >= 1000) {
+      uint32_t lr = 0;
+      if (cur_th->thread_state() && cur_th->thread_state()->context()) {
+        lr = static_cast<uint32_t>(cur_th->thread_state()->context()->lr);
+      }
+      RexMainWaitTrackerRecord(lr, "CritSec_Wait", 8, ns);
+    }
+  }
 }
 
 void RtlEnterCriticalSection_entry(ppc_ptr_t<X_RTL_CRITICAL_SECTION> cs) {
