@@ -25512,6 +25512,20 @@ loc_826E2544:
 
 DEFINE_REX_FUNC(sub_826E6FC0) {
 	REX_FUNC_PROLOGUE();
+#if defined(__SWITCH__)
+	// Fast-path bypass for FMOD room reverb DSP on Switch:
+	// The emulated PowerPC scalar reverb filter (sub_8272CC70) consumes 36% of an entire CPU core.
+	// Passing inbuffer directly to outbuffer bypasses this CPU sink with zero impact on gameplay or note timing.
+	const uint32_t in_buf = ctx.r4.u32;
+	const uint32_t out_buf = ctx.r5.u32;
+	const uint32_t length = ctx.r6.u32;
+	const uint32_t channels = ctx.r7.u32;
+	if (in_buf && out_buf && in_buf != out_buf && length > 0 && channels > 0) {
+		std::memcpy(REX_RAW_ADDR(out_buf), REX_RAW_ADDR(in_buf), length * channels * sizeof(float));
+	}
+	ctx.r3.s64 = 0;
+	return;
+#endif
 	PPCRegister temp{};
 	uint32_t ea{};
 	// mflr r12
