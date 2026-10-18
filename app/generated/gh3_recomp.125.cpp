@@ -25087,7 +25087,7 @@ loc_826E1FEC:
 	// beq cr6,0x826e2008
 	if (ctx.cr6.eq) {
 #if defined(__SWITCH__)
-		RexSwitchSleep(500000);
+		RexSwitchSleep(1500000);
 #endif
 		goto loc_826E2008;
 	}
