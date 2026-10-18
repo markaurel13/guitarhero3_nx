@@ -435,17 +435,15 @@ inline uint32_t CriticalSectionOwner(PPCContext& ctx, uint8_t* base) {
 
 extern "C" void RexMainWaitTrackerRecord(uint32_t lr, const char* fn, uint32_t obj_type, uint64_t duration_ns);
 
-// default_spin: the tries for a section initialised without a spin count (kernel_critsec_spin).
 static void xeEnterCriticalSection(X_RTL_CRITICAL_SECTION* cs, uint32_t cur_thread, uint32_t default_spin) {
   REX_SYS_CENSUS(rex::syscount::kCensusCritSecEnter, 1);
-  uint32_t spin_count = cs->header.absolute * 256;
-  if (spin_count == 0) {
-    // Plain InitializeCriticalSection has no spin count: a contended acquire went straight to the full
-    // waiter (object lookup, host condition variable, a context switch each way).
-    spin_count = default_spin;
-  }
 
-  if (cs->owning_thread == cur_thread) {
+  if (rex::thread::atomic_cas(-1, 0, &cs->lock_count)) {
+    // Fast path: lock was uncontended, acquired immediately without thread lookup or clock queries.
+    cs->owning_thread = cur_thread;
+    cs->recursion_count = 1;
+    return;
+  } else if (cs->owning_thread == cur_thread) {
     // We already own the lock.
     REX_SYS_CENSUS(rex::syscount::kCensusCritSecRecursive, 1);
     rex::thread::atomic_inc(&cs->lock_count);
@@ -453,15 +451,28 @@ static void xeEnterCriticalSection(X_RTL_CRITICAL_SECTION* cs, uint32_t cur_thre
     return;
   }
 
-  XThread* cur_th = XThread::GetCurrentThread();
-  const bool is_main = cur_th && cur_th->main_thread();
-  const auto t0 = is_main ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+  // Lock is contended. Check spin count.
+  uint32_t spin_count = cs->header.absolute * 256;
+  if (spin_count == 0) {
+    spin_count = default_spin;
+  }
+
+  XThread* cur_th = nullptr;
+  bool is_main = false;
+  std::chrono::steady_clock::time_point t0{};
+  if (spin_count != 0) {
+    cur_th = XThread::GetCurrentThread();
+    is_main = cur_th && cur_th->main_thread();
+    if (is_main) {
+      t0 = std::chrono::steady_clock::now();
+    }
+  }
 
   // Spin loop (test, then test-and-set, with a CPU yield between tries so the owner's release is not slowed).
   while (spin_count--) {
     if (*reinterpret_cast<volatile int32_t*>(&cs->lock_count) == -1 &&
         rex::thread::atomic_cas(-1, 0, &cs->lock_count)) {
-      // Acquired.
+      // Acquired via spin!
       cs->owning_thread = cur_thread;
       cs->recursion_count = 1;
       if (is_main) {
@@ -482,6 +493,12 @@ static void xeEnterCriticalSection(X_RTL_CRITICAL_SECTION* cs, uint32_t cur_thre
 #endif
   }
 
+  if (!cur_th) {
+    cur_th = XThread::GetCurrentThread();
+    is_main = cur_th && cur_th->main_thread();
+  }
+  const auto wait_t0 = is_main ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+
   if (rex::thread::atomic_inc(&cs->lock_count) != 0) {
     // Create a full waiter.
     REX_SYS_COUNT(rex::syscount::kCritSecWait, 1);
@@ -492,8 +509,8 @@ static void xeEnterCriticalSection(X_RTL_CRITICAL_SECTION* cs, uint32_t cur_thre
   cs->owning_thread = cur_thread;
   cs->recursion_count = 1;
   if (is_main) {
-    const auto t1 = std::chrono::steady_clock::now();
-    uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+    const auto wait_t1 = std::chrono::steady_clock::now();
+    uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(wait_t1 - wait_t0).count();
     if (ns >= 1000) {
       uint32_t lr = 0;
       if (cur_th->thread_state() && cur_th->thread_state()->context()) {
