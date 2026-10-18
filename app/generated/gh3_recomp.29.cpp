@@ -7886,6 +7886,13 @@ DEFINE_REX_FUNC(sub_822CA3D0) {
 	ctx.cr6.compare<uint32_t>(ctx.r3.u32, 2, ctx.xer);
 	// bgt cr6,0x822ca40c
 	if (ctx.cr6.gt) goto loc_822CA40C;
+#if defined(__SWITCH__)
+	// On Switch, to lock 30 FPS fluidly (2 VBlanks / 33.3 ms):
+	// Clamp interval to at least 2 so that the highway/notes never accelerate to 60 FPS!
+	if (ctx.r3.u32 < 2) {
+		ctx.r3.u32 = 2;
+	}
+#endif
 	// stw r3,24000(r29)
 	REX_STORE_U32(ctx.r29.u32 + 24000, ctx.r3.u32);
 loc_822CA40C:
@@ -7972,6 +7979,11 @@ loc_822CA45C:
 loc_822CA470:
 	// lwz r11,24000(r29)
 	ctx.r11.u64 = REX_LOAD_U32(ctx.r29.u32 + 24000);
+#if defined(__SWITCH__)
+	if (ctx.r11.u32 < 2) {
+		ctx.r11.u32 = 2;
+	}
+#endif
 	// extsw r11,r11
 	ctx.r11.s64 = ctx.r11.s32;
 	// add r11,r11,r3
