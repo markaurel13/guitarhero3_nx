@@ -626,6 +626,10 @@ class PosixConditionBase {
     return const_cast<std::condition_variable&>(cond_).native_handle();
   }
 
+  inline bool has_multi_waiters() const {
+    return multi_count_.load(std::memory_order_relaxed) != 0;
+  }
+
  protected:
   inline virtual bool signaled() const = 0;
   inline virtual void post_execution() = 0;
@@ -680,17 +684,43 @@ class PosixCondition<Event> : public PosixConditionBase {
   void Reset() {
     auto lock = std::unique_lock<std::mutex>(mutex_);
     signal_ = false;
+    pulse_waiters_ = 0;
+  }
+
+  void Pulse() {
+    uint32_t waiters;
+    {
+      auto lock = std::unique_lock<std::mutex>(mutex_);
+      waiters = cond_waiters_;
+      if (waiters != 0) {
+        if (manual_reset_) {
+          pulse_waiters_ += waiters;
+        } else {
+          pulse_waiters_ += 1;
+        }
+      } else if (has_multi_waiters()) {
+        pulse_waiters_ += 1;
+      } else {
+        signal_ = false;
+        return;
+      }
+    }
+    WakeWaiters(waiters);
+    NotifyMulti();
   }
 
  private:
-  inline bool signaled() const override { return signal_; }
+  inline bool signaled() const override { return signal_ || pulse_waiters_ > 0; }
   inline void post_execution() override {
-    if (!manual_reset_) {
+    if (pulse_waiters_ > 0) {
+      --pulse_waiters_;
+    } else if (!manual_reset_) {
       signal_ = false;
     }
   }
   bool signal_;
   const bool manual_reset_;
+  uint32_t pulse_waiters_ = 0;
 };
 
 template <>
@@ -1996,11 +2026,7 @@ class PosixEvent : public PosixConditionHandle<Event> {
   void Set() override { handle_.Signal(); }
   void Reset() override { handle_.Reset(); }
   void Pulse() override {
-    using namespace std::chrono_literals;
-    handle_.Signal();
-    MaybeYield();
-    Sleep(10us);
-    handle_.Reset();
+    handle_.Pulse();
   }
 };
 
