@@ -1615,6 +1615,18 @@ inline bool Equal24(const void* a, const void* b) {
   return ((x0 ^ y0) | (x1 ^ y1) | (x2 ^ y2)) == 0;
 }
 
+inline void Copy24(void* dst, const void* src) {
+  uint64_t w0, w1, w2;
+  const uint8_t* s = reinterpret_cast<const uint8_t*>(src);
+  uint8_t* d = reinterpret_cast<uint8_t*>(dst);
+  std::memcpy(&w0, s, 8);
+  std::memcpy(&w1, s + 8, 8);
+  std::memcpy(&w2, s + 16, 8);
+  std::memcpy(d, &w0, 8);
+  std::memcpy(d + 8, &w1, 8);
+  std::memcpy(d + 16, &w2, 8);
+}
+
 inline uint64_t HashFetch24(const uint32_t* f) {
   uint64_t w0, w1, w2;
   std::memcpy(&w0, f, 8);
@@ -3438,7 +3450,7 @@ class DrawsVulkanImpl final : public DrawsVulkan {
         slot_sampler = SlotSampler(fetch, punctual_sampling);
         per_fetch.frame = frame_;
         per_fetch.generation = generation_textures_;
-        std::memcpy(per_fetch.fetch.data(), fetch, sizeof(per_fetch.fetch));
+        Copy24(per_fetch.fetch.data(), fetch);
         per_fetch.slot = slot_texture;
         per_fetch.heap = heap;
         per_fetch.sampler = slot_sampler;
@@ -3452,7 +3464,7 @@ class DrawsVulkanImpl final : public DrawsVulkan {
       WriteInvSize(shared, sampler.register_value, host_width, host_height);
       cache.frame = frame_;
       cache.generation = generation_textures_;
-      std::memcpy(cache.fetch.data(), fetch, sizeof(cache.fetch));
+      Copy24(cache.fetch.data(), fetch);
       cache.slot = slot_texture;
       cache.heap = heap;
       cache.sampler = slot_sampler;
@@ -4046,21 +4058,36 @@ class DrawsVulkanImpl final : public DrawsVulkan {
       if (groups == (1u << 7) && !p.vs->reads_r0) ++diag_shared_only_base_no_r0_;
       if (groups == ((1u << 7) | (1u << 0))) ++diag_shared_base_and_slots_;
     }
+    bool hit = false;
     if (shared_epoch_ == epoch_upload_ &&
         (shared_from_upload ? SameSharedUploaded(shared_uploaded, shared, sizeof(shared))
                             : Equal(shared, shared_previous_, sizeof(shared)))) {
       offset_shared = shared_offset_;  // the same as the previous draw
+      hit = true;
     } else {
-      ++shared_changed_;
-      if (shared_separate_ && use_ubo_) {
-        // To the separate CPU-cached buffer; binding 2 of set 4 points to it.
-        offset_shared = (shared_used_ + alignment_ubo_ - 1) & ~(alignment_ubo_ - 1);
-        shared_used_ = offset_shared + kUboBytesShared;
-        std::memcpy(shared_data_ + offset_shared, shared, sizeof(shared));
+      const uint64_t hash = XXH3_64bits(shared, sizeof(shared));
+      SharedCacheEntry& entry_cache = shared_cache_[hash & (shared_cache_.size() - 1)];
+      if (entry_cache.epoch == epoch_upload_ && entry_cache.hash == hash &&
+          Equal(shared, entry_cache.data, sizeof(shared))) {
+        offset_shared = entry_cache.offset;
+        hit = true;
+        ++shared_cache_hits_;
       } else {
-        Reserve(use_ubo_ ? kUboBytesShared : kSharedWords * 4, use_ubo_ ? alignment_ubo_ : 16,
-                 offset_shared);
-        std::memcpy(upload_data_ + offset_shared, shared, sizeof(shared));
+        ++shared_changed_;
+        if (shared_separate_ && use_ubo_) {
+          // To the separate CPU-cached buffer; binding 2 of set 4 points to it.
+          offset_shared = (shared_used_ + alignment_ubo_ - 1) & ~(alignment_ubo_ - 1);
+          shared_used_ = offset_shared + kUboBytesShared;
+          std::memcpy(shared_data_ + offset_shared, shared, sizeof(shared));
+        } else {
+          Reserve(use_ubo_ ? kUboBytesShared : kSharedWords * 4, use_ubo_ ? alignment_ubo_ : 16,
+                   offset_shared);
+          std::memcpy(upload_data_ + offset_shared, shared, sizeof(shared));
+        }
+        entry_cache.epoch = epoch_upload_;
+        entry_cache.hash = hash;
+        entry_cache.offset = offset_shared;
+        std::memcpy(entry_cache.data, shared, sizeof(shared));
       }
       if (!shared_from_upload || sa2::enh::VerifyMode()) std::memcpy(shared_previous_, shared, sizeof(shared));
       shared_offset_ = offset_shared;
@@ -5026,12 +5053,12 @@ class DrawsVulkanImpl final : public DrawsVulkan {
           "{:.1f} %, only shared {:.1f} %, VS+PS {:.1f} %, VS+shared {:.1f} %, PS+shared {:.1f} %, "
           "all three {:.1f} %, after buffer, slot or sky {:.1f} % | constants uploaded again: VS {} by "
           "generation, {} by epoch and {} because the shader reads more; PS {}, {} and {}; same bytes reused: VS {}, "
-          "PS {}",
+          "PS {}, shared cache hits {}",
           double(bindings) / double(set4_draws_), bindings, set4_draws_, pct(set4_changes_[1]),
           pct(set4_changes_[2]), pct(set4_changes_[4]), pct(set4_changes_[3]), pct(set4_changes_[5]),
           pct(set4_changes_[6]), pct(set4_changes_[7]), pct(set4_first_), reuploaded_vs_[0], reuploaded_vs_[1],
           reuploaded_vs_[2], reuploaded_ps_[0], reuploaded_ps_[1], reuploaded_ps_[2], deduped_constants_[0],
-          deduped_constants_[1]);
+          deduped_constants_[1], shared_cache_hits_);
       if (NvkSwitchSet4* const nvk = &nvk_switch_set4; nvk != nullptr && nvk->version == 1) {
         const uint64_t counts[9] = {__atomic_load_n(&nvk->total.bindings_difference, __ATOMIC_RELAXED),
                                      __atomic_load_n(&nvk->total.complete_bindings, __ATOMIC_RELAXED),
@@ -5065,6 +5092,7 @@ class DrawsVulkanImpl final : public DrawsVulkan {
     set4_draws_ = 0;
     reuploaded_vs_.fill(0);
     reuploaded_ps_.fill(0);
+    shared_cache_hits_ = 0;
   }
 
   // Every 10 s, how many draws go without binding their own offset (base zero).
@@ -13121,6 +13149,14 @@ class DrawsVulkanImpl final : public DrawsVulkan {
   uint64_t shared_changed_ = 0;
   VkDeviceSize shared_offset_ = 0;
   uint64_t shared_epoch_ = UINT64_MAX;
+  struct SharedCacheEntry {
+    uint64_t hash = 0;
+    uint64_t epoch = UINT64_MAX;
+    VkDeviceSize offset = 0;
+    uint32_t data[kSharedWords] = {};
+  };
+  std::array<SharedCacheEntry, 128> shared_cache_{};
+  uint64_t shared_cache_hits_ = 0;
 
   VerticesEntry entry_;
   const VerticesEntry* entry_current_ = &entry_;  // entry_ or a cache element
