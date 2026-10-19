@@ -200,7 +200,7 @@ REXCVAR_DEFINE_INT32(sa2_native_texture_interval_max, 128, "SA2 renderer",
                      "popping; lower it (8, 4) to trade ring CPU time for less popping. Must be a power of two.")
     .range(2, 256);
 
-REXCVAR_DEFINE_BOOL(sa2_native_adaptive_texture, true, "SA2 renderer",
+REXCVAR_DEFINE_BOOL(sa2_native_adaptive_texture, false, "SA2 renderer",
                     "A texture whose guest memory was seen to change after it had looked stable (streaming into a "
                     "reused address, animated lookup tables) never goes back to a long recheck interval: its maximum "
                     "becomes 4 frames after the first late change and 2 after the third. Fixes textures that jump "
@@ -4058,36 +4058,21 @@ class DrawsVulkanImpl final : public DrawsVulkan {
       if (groups == (1u << 7) && !p.vs->reads_r0) ++diag_shared_only_base_no_r0_;
       if (groups == ((1u << 7) | (1u << 0))) ++diag_shared_base_and_slots_;
     }
-    bool hit = false;
     if (shared_epoch_ == epoch_upload_ &&
         (shared_from_upload ? SameSharedUploaded(shared_uploaded, shared, sizeof(shared))
                             : Equal(shared, shared_previous_, sizeof(shared)))) {
       offset_shared = shared_offset_;  // the same as the previous draw
-      hit = true;
     } else {
-      const uint64_t hash = XXH3_64bits(shared, sizeof(shared));
-      SharedCacheEntry& entry_cache = shared_cache_[hash & (shared_cache_.size() - 1)];
-      if (entry_cache.epoch == epoch_upload_ && entry_cache.hash == hash &&
-          Equal(shared, entry_cache.data, sizeof(shared))) {
-        offset_shared = entry_cache.offset;
-        hit = true;
-        ++shared_cache_hits_;
+      ++shared_changed_;
+      if (shared_separate_ && use_ubo_) {
+        // To the separate CPU-cached buffer; binding 2 of set 4 points to it.
+        offset_shared = (shared_used_ + alignment_ubo_ - 1) & ~(alignment_ubo_ - 1);
+        shared_used_ = offset_shared + kUboBytesShared;
+        std::memcpy(shared_data_ + offset_shared, shared, sizeof(shared));
       } else {
-        ++shared_changed_;
-        if (shared_separate_ && use_ubo_) {
-          // To the separate CPU-cached buffer; binding 2 of set 4 points to it.
-          offset_shared = (shared_used_ + alignment_ubo_ - 1) & ~(alignment_ubo_ - 1);
-          shared_used_ = offset_shared + kUboBytesShared;
-          std::memcpy(shared_data_ + offset_shared, shared, sizeof(shared));
-        } else {
-          Reserve(use_ubo_ ? kUboBytesShared : kSharedWords * 4, use_ubo_ ? alignment_ubo_ : 16,
-                   offset_shared);
-          std::memcpy(upload_data_ + offset_shared, shared, sizeof(shared));
-        }
-        entry_cache.epoch = epoch_upload_;
-        entry_cache.hash = hash;
-        entry_cache.offset = offset_shared;
-        std::memcpy(entry_cache.data, shared, sizeof(shared));
+        Reserve(use_ubo_ ? kUboBytesShared : kSharedWords * 4, use_ubo_ ? alignment_ubo_ : 16,
+                 offset_shared);
+        std::memcpy(upload_data_ + offset_shared, shared, sizeof(shared));
       }
       if (!shared_from_upload || sa2::enh::VerifyMode()) std::memcpy(shared_previous_, shared, sizeof(shared));
       shared_offset_ = offset_shared;
@@ -5053,12 +5038,12 @@ class DrawsVulkanImpl final : public DrawsVulkan {
           "{:.1f} %, only shared {:.1f} %, VS+PS {:.1f} %, VS+shared {:.1f} %, PS+shared {:.1f} %, "
           "all three {:.1f} %, after buffer, slot or sky {:.1f} % | constants uploaded again: VS {} by "
           "generation, {} by epoch and {} because the shader reads more; PS {}, {} and {}; same bytes reused: VS {}, "
-          "PS {}, shared cache hits {}",
+          "PS {}",
           double(bindings) / double(set4_draws_), bindings, set4_draws_, pct(set4_changes_[1]),
           pct(set4_changes_[2]), pct(set4_changes_[4]), pct(set4_changes_[3]), pct(set4_changes_[5]),
           pct(set4_changes_[6]), pct(set4_changes_[7]), pct(set4_first_), reuploaded_vs_[0], reuploaded_vs_[1],
           reuploaded_vs_[2], reuploaded_ps_[0], reuploaded_ps_[1], reuploaded_ps_[2], deduped_constants_[0],
-          deduped_constants_[1], shared_cache_hits_);
+          deduped_constants_[1]);
       if (NvkSwitchSet4* const nvk = &nvk_switch_set4; nvk != nullptr && nvk->version == 1) {
         const uint64_t counts[9] = {__atomic_load_n(&nvk->total.bindings_difference, __ATOMIC_RELAXED),
                                      __atomic_load_n(&nvk->total.complete_bindings, __ATOMIC_RELAXED),
@@ -5092,7 +5077,6 @@ class DrawsVulkanImpl final : public DrawsVulkan {
     set4_draws_ = 0;
     reuploaded_vs_.fill(0);
     reuploaded_ps_.fill(0);
-    shared_cache_hits_ = 0;
   }
 
   // Every 10 s, how many draws go without binding their own offset (base zero).
@@ -8796,7 +8780,7 @@ class DrawsVulkanImpl final : public DrawsVulkan {
   static uint32_t CapInterval(const Texture& t) {
     uint32_t cap = uint32_t(REXCVAR_GET(sa2_native_texture_interval_max));
     if (t.late_changes && REXCVAR_GET(sa2_native_adaptive_texture)) {
-      cap = std::min<uint32_t>(cap, t.late_changes >= 3 ? 2u : 4u);
+      cap = std::min<uint32_t>(cap, t.late_changes >= 3 ? 16u : 32u);
     }
     return cap;
   }
@@ -13149,14 +13133,6 @@ class DrawsVulkanImpl final : public DrawsVulkan {
   uint64_t shared_changed_ = 0;
   VkDeviceSize shared_offset_ = 0;
   uint64_t shared_epoch_ = UINT64_MAX;
-  struct SharedCacheEntry {
-    uint64_t hash = 0;
-    uint64_t epoch = UINT64_MAX;
-    VkDeviceSize offset = 0;
-    uint32_t data[kSharedWords] = {};
-  };
-  std::array<SharedCacheEntry, 128> shared_cache_{};
-  uint64_t shared_cache_hits_ = 0;
 
   VerticesEntry entry_;
   const VerticesEntry* entry_current_ = &entry_;  // entry_ or a cache element
