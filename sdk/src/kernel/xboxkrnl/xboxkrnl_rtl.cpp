@@ -486,7 +486,7 @@ static void xeEnterCriticalSection(X_RTL_CRITICAL_SECTION* cs, uint32_t cur_thre
           if (cur_th->thread_state() && cur_th->thread_state()->context()) {
             lr = static_cast<uint32_t>(cur_th->thread_state()->context()->lr);
           }
-          RexMainWaitTrackerRecord(lr, "CritSec_Spin", 8, ns);
+          RexMainWaitTrackerRecord(lr, "CritSec_Spin", 99, ns);
         }
       }
       return;
@@ -519,7 +519,7 @@ static void xeEnterCriticalSection(X_RTL_CRITICAL_SECTION* cs, uint32_t cur_thre
       if (cur_th->thread_state() && cur_th->thread_state()->context()) {
         lr = static_cast<uint32_t>(cur_th->thread_state()->context()->lr);
       }
-      RexMainWaitTrackerRecord(lr, "CritSec_Wait", 8, ns);
+      RexMainWaitTrackerRecord(lr, "CritSec_Wait", 99, ns);
     }
   }
 }

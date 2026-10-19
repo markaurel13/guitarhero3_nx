@@ -393,7 +393,15 @@ class PosixConditionBase {
     if (timeout == std::chrono::milliseconds::max()) {
       lock.lock();
     } else {
+      int spin = 128;
       while (!lock.try_lock()) {
+        if (spin > 0) {
+          --spin;
+#if defined(__aarch64__)
+          asm volatile("yield" ::: "memory");
+#endif
+          continue;
+        }
         const auto now = std::chrono::steady_clock::now();
         if (now >= deadline) {
           return WaitResult::kTimeout;

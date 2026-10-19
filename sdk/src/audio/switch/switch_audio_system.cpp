@@ -33,9 +33,9 @@ REXCVAR_DEFINE_BOOL(audio_switch_pump, true, "Audio",
                     "MarathonRecomp-NX) instead of 4 in a row when each audout buffer is consumed, which "
                     "left the game's audio server voice without a packet (robotic audio); "
                     "read when the audio is opened");
-REXCVAR_DEFINE_INT32(audio_switch_frames_in_queue, 16, "Audio",
+REXCVAR_DEFINE_INT32(audio_switch_frames_in_queue, 20, "Audio",
                      "With audio_switch_pump: game frames kept queued before audout "
-                     "(cushion; 16 = ~85 ms). Prevents underruns during load spikes");
+                     "(cushion; 20 = ~106 ms). Prevents underruns during load spikes");
 
 namespace rex::audio::nx {
 

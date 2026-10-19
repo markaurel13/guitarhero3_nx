@@ -423,11 +423,10 @@ struct MainWaitTracker {
     for (const auto& e : to_report) {
       if (++count > 10) break;
       const char* type_str = "obj";
-      if (e.object_type == 1) type_str = "Event";
-      else if (e.object_type == 2) type_str = "Semaphore";
-      else if (e.object_type == 3) type_str = "Mutant";
-      else if (e.object_type == 4) type_str = "Timer";
-      else if (e.object_type == 8) type_str = "CritSec";
+      if (e.object_type == 2) type_str = "Event";
+      else if (e.object_type == 6) type_str = "Mutant";
+      else if (e.object_type == 8) type_str = "Semaphore";
+      else if (e.object_type == 99) type_str = "CritSec";
       report += fmt::format(" LR {:08X} ({} {}) {:.1f} ms ({} calls, max {:.1f} ms) |",
                             e.caller_lr, e.wait_fn, type_str,
                             double(e.total_ns) / 1e6, e.count, double(e.max_ns) / 1e6);
@@ -951,6 +950,16 @@ u32 NtWaitForSingleObjectEx_entry(u32 object_handle, u32 wait_mode, u32 alertabl
   uint32_t lr = 0;
   if (is_main && current_th->thread_state() && current_th->thread_state()->context()) {
     lr = static_cast<uint32_t>(current_th->thread_state()->context()->lr);
+    if (lr == 0x82138B08) {
+      const uint32_t r1 = current_th->thread_state()->context()->r1.u32;
+      auto* ptr = rex::system::kernel_state()->memory()->TranslateVirtual<uint32_t*>(r1 + 120);
+      if (ptr) {
+        const uint32_t parent_lr = rex::byte_swap(*ptr);
+        if (parent_lr >= 0x82000000 && parent_lr < 0x83000000) {
+          lr = parent_lr;
+        }
+      }
+    }
   }
   const auto t0 = is_main ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
 
