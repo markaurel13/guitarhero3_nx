@@ -1640,8 +1640,8 @@ const std::array<std::pair<const uint32_t*, size_t>, 9> codes_conversion{{
       else if (dest_base == 0x0C668000u) {
         skip = true;
       }
-      // 4. Stage cubemap reflection faces and downscale mips (0x080F0000 - 0x085D0000, 8-10 per frame).
-      else if (dest_base >= 0x080F0000u && dest_base <= 0x085D0000u) {
+      // 4. Stage cubemap reflection faces and downscale mips (0x080C0000 - 0x085E0000, 8-10 per frame).
+      else if (dest_base >= 0x080C0000u && dest_base <= 0x085E0000u) {
         skip = true;
       }
       // 5. Cubemap reflection downsamples (pitch <= 128 at depth base 0x80)
