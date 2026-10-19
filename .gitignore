@@ -34,3 +34,5 @@ run/
 __pycache__/
 *.py[cod]
 *$py.class
+
+gh3-nx-installer/
