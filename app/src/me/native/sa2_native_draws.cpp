@@ -852,7 +852,7 @@ SA2_ENHANCEMENT(g_bound_plan_memo, sa2_cpu_ring_bound_plan_memo, sa2::enh::kCpu,
 SA2_ENHANCEMENT(g_compare_uploaded, sa2_cpu_ring_compare_uploaded, sa2::enh::kCpu, true,
                 "Ring thread: constants and shared-block change tests read the uploaded block (CPU-cached memory) "
                 "instead of keeping a second copy of every upload");
-REXCVAR_DEFINE_BOOL(sa2_native_dedupe_vertices, true, "SA2 renderer",
+REXCVAR_DEFINE_BOOL(sa2_native_dedupe_vertices, false, "SA2 renderer",
                     "Native renderer: if two draws in the same frame request the same vertex "
                     "range, it is uploaded only once. The C6 report lists hits and MB saved");
 
@@ -1450,20 +1450,29 @@ void CopyVerticesBase(const WorkCopy& t) {
   uint8_t* const target = t.target;
   const uint32_t words = t.words;
   const xenos::Endian order = t.order;
+  if (order == xenos::Endian::kNone) {
+    std::memcpy(target, source, size_t(words) * 4);
+    return;
+  }
   if (order == xenos::Endian::k8in32) {
-    for (uint32_t i = 0; i < words; ++i) {
+    uint32_t i = 0;
+    for (; i + 4 <= words; i += 4) {
+      uint8x16_t v = vld1q_u8(source + size_t(i) * 4);
+      vst1q_u8(target + size_t(i) * 4, vrev32q_u8(v));
+    }
+    for (; i < words; ++i) {
       uint32_t v;
       std::memcpy(&v, source + size_t(i) * 4, 4);
       v = std::byteswap(v);
       std::memcpy(target + size_t(i) * 4, &v, 4);
     }
-  } else {
-    for (uint32_t i = 0; i < words; ++i) {
-      uint32_t v;
-      std::memcpy(&v, source + size_t(i) * 4, 4);
-      v = xenos::GpuSwap(v, order);
-      std::memcpy(target + size_t(i) * 4, &v, 4);
-    }
+    return;
+  }
+  for (uint32_t i = 0; i < words; ++i) {
+    uint32_t v;
+    std::memcpy(&v, source + size_t(i) * 4, 4);
+    v = xenos::GpuSwap(v, order);
+    std::memcpy(target + size_t(i) * 4, &v, 4);
   }
 }
 
@@ -1497,7 +1506,7 @@ std::atomic<bool> g_fast_off_copy{false};
 
 void CopyVertices(const WorkCopy& t) {
   static const bool fast = REXCVAR_GET(sa2_native_fast_copy);
-  if (fast && t.words >= 32 && !g_fast_off_copy.load(std::memory_order_relaxed)) {
+  if (fast && t.words >= 16 && !g_fast_off_copy.load(std::memory_order_relaxed)) {
     const size_t blocks = size_t(t.words) / 16;
     switch (t.order) {
       case xenos::Endian::k8in16: CopyBlocks64<1>(t.source, t.target, blocks); break;
