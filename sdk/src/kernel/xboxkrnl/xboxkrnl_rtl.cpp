@@ -342,7 +342,7 @@ struct X_RTL_CRITICAL_SECTION {
 static_assert_size(X_RTL_CRITICAL_SECTION, 28);
 
 #if defined(__SWITCH__)
-REXCVAR_DEFINE_INT32(kernel_critsec_spin, 3072, "Kernel",
+REXCVAR_DEFINE_INT32(kernel_critsec_spin, 4096, "Kernel",
                      "RtlEnterCriticalSection on a critical section initialised without a spin count: tries to take "
                      "the lock this many times (with a CPU yield between tries, ~1-2 us for 64) before falling back to "
                      "the full host waiter. 0 = the original behaviour (no spin)");
@@ -462,8 +462,10 @@ static void xeEnterCriticalSection(X_RTL_CRITICAL_SECTION* cs, uint32_t cur_thre
 #if defined(__SWITCH__)
   // Main thread is pinned exclusively to Core 0. When contended on task queue/dispatch locks,
   // spinning in user-space avoids entering the Horizon kernel scheduler (saving ~50 us context switch latency).
-  if (is_main && spin_count < 3072) {
-    spin_count = 3072;
+  // With secondary workers executing in parallel on Cores 1 and 2, spinning 12288 iterations (~80 us)
+  // allows workers to complete short tasks and release the lock without Main sleeping in the kernel.
+  if (is_main && spin_count < 12288) {
+    spin_count = 12288;
   }
 #endif
   std::chrono::steady_clock::time_point t0{};
