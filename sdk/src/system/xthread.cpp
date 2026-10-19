@@ -533,14 +533,25 @@ X_STATUS XThread::Create() {
     REXLOG_INFO("[nx] Thread '{}' priority set to {:#x}", thread_name_, target_prio);
     if (guest_thread_) {
       if (main_thread_) {
-        // Main game thread: preferred Core 0, can use Core 2 (mask 0x5, exclusive core pins here).
-        RexSwitchSetCurrentThreadCoreMask(0, (1ull << 0) | (1ull << 2));
+        // Main game thread: preferred Core 0, exclusive pin to Core 0.
+        RexSwitchSetCurrentThreadCoreMask(0, 1ull << 0);
       } else {
-        // Guest workers (XT00CC_826E1F90, XT0054, XT0068, XT006C, XT0070, etc.):
-        // Preferred Core 2, can run on Core 0, Core 1, and Core 2 (mask 0x7).
-        // On Core 1, the GPU ring thread (priority 0x28) strictly preempts workers (priority 0x3B).
-        // This utilizes the ~78% idle CPU of Core 1 to prevent worker starvation without hindering the GPU ring.
-        RexSwitchSetCurrentThreadCoreMask(2, (1ull << 0) | (1ull << 1) | (1ull << 2));
+        // Guest threads: preferred Core 2 by default with mask 0x7.
+        int preferred_core = 2;
+        uint64_t core_mask = (1ull << 0) | (1ull << 1) | (1ull << 2);
+        // Task workers (XT0068, XT006C at 823ECC00):
+        // Route XT006C to Core 1 and XT0068 to Core 2.
+        // Restrict their mask to (Core 1 | Core 2) = 0x6 so they never run on Core 0
+        // or contend with the Main game thread!
+        if (thread_name_.find("823ECC00") != std::string_view::npos) {
+          if (thread_name_.find("XT006C") != std::string_view::npos) {
+            preferred_core = 1;
+          } else {
+            preferred_core = 2;
+          }
+          core_mask = (1ull << 1) | (1ull << 2);
+        }
+        RexSwitchSetCurrentThreadCoreMask(preferred_core, core_mask);
       }
     }
 #endif
