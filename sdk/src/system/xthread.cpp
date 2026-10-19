@@ -373,11 +373,6 @@ int SwitchPriorityFor(bool guest_thread, std::string_view name) {
       return 0x2E;  // 46: Priority for task workers XT0068, XT006C, XT0070
     }
 
-    // Havok animation/physics worker threads (XT00B0, XT00B4 at 8268B308):
-    if (name.find("8268B308") != std::string_view::npos) {
-      return 0x2E;  // 46: Priority for Havok job workers
-    }
-
     if (name.find("824E4FF8") != std::string_view::npos) {
       return 0x2D;  // 45: Horizon priority for render workers XT0044/XT0048 (above 0x3B workers)
     }
@@ -541,32 +536,23 @@ X_STATUS XThread::Create() {
         // Main game thread: preferred Core 0, exclusive pin to Core 0.
         RexSwitchSetCurrentThreadCoreMask(0, 1ull << 0);
       } else {
-        // Secondary guest threads: strictly restricted to Cores 1 and 2 (mask 0x6).
-        // Core 0 is reserved EXCLUSIVELY for the Main game thread!
+        // Guest threads: preferred Core 2 by default with mask 0x7.
+        // During movie playback (Bink XT0114, XT0124) and file loading, secondary threads
+        // may run on Core 0 while Main is blocked without starving.
         int preferred_core = 2;
-        uint64_t core_mask = (1ull << 1) | (1ull << 2);
+        uint64_t core_mask = (1ull << 0) | (1ull << 1) | (1ull << 2);
 
-        // Distribute preferred cores across Cores 1 & 2:
+        // Task workers (XT0068, XT006C at 823ECC00):
+        // Route XT006C to Core 1 and XT0068 to Core 2.
+        // Restrict their mask to (Core 1 | Core 2) = 0x6 so they never run on Core 0
+        // or contend with the Main game thread!
         if (thread_name_.find("823ECC00") != std::string_view::npos) {
-          // Task workers (XT0068, XT006C):
           if (thread_name_.find("XT006C") != std::string_view::npos) {
             preferred_core = 1;
           } else {
             preferred_core = 2;
           }
-        } else if (thread_name_.find("8268B308") != std::string_view::npos) {
-          // Havok workers (XT00B0, XT00B4):
-          if (thread_name_.find("XT00B0") != std::string_view::npos) {
-            preferred_core = 1;
-          } else {
-            preferred_core = 2;
-          }
-        } else if (thread_name_.find("824E4FF8") != std::string_view::npos) {
-          // Render workers (XT0044, XT0048):
-          preferred_core = 1;
-        } else if (thread_name_.find("826E1F90") != std::string_view::npos) {
-          // Audio guest threads:
-          preferred_core = 2;
+          core_mask = (1ull << 1) | (1ull << 2);
         }
 
         RexSwitchSetCurrentThreadCoreMask(preferred_core, core_mask);
