@@ -462,8 +462,8 @@ static void xeEnterCriticalSection(X_RTL_CRITICAL_SECTION* cs, uint32_t cur_thre
 #if defined(__SWITCH__)
   // Main thread is pinned exclusively to Core 0. When contended on task queue/dispatch locks,
   // spinning in user-space avoids entering the Horizon kernel scheduler (saving ~50 us context switch latency).
-  if (is_main && spin_count < 3072) {
-    spin_count = 3072;
+  if (is_main && spin_count < 4096) {
+    spin_count = 4096;
   }
 #endif
   std::chrono::steady_clock::time_point t0{};
