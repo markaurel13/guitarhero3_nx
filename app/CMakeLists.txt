@@ -100,7 +100,7 @@ if(REXGLUE_PLATFORM_SWITCH)
 
     rexglue_switch_add_nro(gh3
         NAME "Guitar Hero III: Legends of Rock"
-        AUTHOR "markaurel13, Neversoft"
+        AUTHOR "markaurel13"
         VERSION "1.0.0"
         ICON "${CMAKE_CURRENT_SOURCE_DIR}/icon.jpg"
     )

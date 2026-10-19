@@ -1602,6 +1602,31 @@ inline bool Equal(const void* a, const void* b, size_t n) {
   return in_line ? EqualInLine(a, b, n) : std::memcmp(a, b, n) == 0;
 }
 
+inline bool Equal24(const void* a, const void* b) {
+  uint64_t x0, y0, x1, y1, x2, y2;
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(a);
+  const uint8_t* q = reinterpret_cast<const uint8_t*>(b);
+  std::memcpy(&x0, p, 8);
+  std::memcpy(&y0, q, 8);
+  std::memcpy(&x1, p + 8, 8);
+  std::memcpy(&y1, q + 8, 8);
+  std::memcpy(&x2, p + 16, 8);
+  std::memcpy(&y2, q + 16, 8);
+  return ((x0 ^ y0) | (x1 ^ y1) | (x2 ^ y2)) == 0;
+}
+
+inline uint64_t HashFetch24(const uint32_t* f) {
+  uint64_t w0, w1, w2;
+  std::memcpy(&w0, f, 8);
+  std::memcpy(&w1, f + 2, 8);
+  std::memcpy(&w2, f + 4, 8);
+  uint64_t h = w0 ^ (w1 * 0x9E3779B97F4A7C15ULL) ^ (w2 * 0xC6A4A7935BD1E995ULL);
+  h ^= h >> 33;
+  h *= 0xff51afd7ed558ccdULL;
+  h ^= h >> 33;
+  return h;
+}
+
 float Float(uint32_t value) {
   return std::bit_cast<float>(value);
 }
@@ -3365,7 +3390,7 @@ class DrawsVulkanImpl final : public DrawsVulkan {
       // Valid until cache.valid_until (with the cross-frame cache disabled, only its own frame)
       if ((cache_between_frames_ ? frame_ <= cache.valid_until : cache.frame == frame_) &&
           cache.generation == generation_textures_ &&
-          Equal(cache.fetch.data(), fetch, sizeof(cache.fetch))) {
+          Equal24(cache.fetch.data(), fetch)) {
         shared[cache.heap * 16 + sampler.register_value] = cache.slot;
         draw_signs |= cache.slot >> 24;
         shared[48 + sampler.register_value] = cache.sampler;
@@ -3381,11 +3406,11 @@ class DrawsVulkanImpl final : public DrawsVulkan {
       // changes texture between draws, but textures repeat a lot within a frame, and PrepareTexture already
       // queued their upload the first time.
       CacheSampler& per_fetch =
-          cache_fetch_[XXH3_64bits(fetch, sizeof(uint32_t) * 6) & (cache_fetch_.size() - 1)];
+          cache_fetch_[HashFetch24(fetch) & (cache_fetch_.size() - 1)];
       uint64_t valid_until = frame_;
       if ((cache_between_frames_ ? frame_ <= per_fetch.valid_until : per_fetch.frame == frame_) &&
           per_fetch.generation == generation_textures_ &&
-          Equal(per_fetch.fetch.data(), fetch, sizeof(per_fetch.fetch))) {
+          Equal24(per_fetch.fetch.data(), fetch)) {
         slot_texture = per_fetch.slot;
         heap = per_fetch.heap;
         slot_sampler = per_fetch.sampler;
@@ -3395,7 +3420,7 @@ class DrawsVulkanImpl final : public DrawsVulkan {
         ++samplers_cache_fetch_;
       } else {
         // Why the table misses ("C6 cache per fetch" report, every 10 s).
-        if (!Equal(per_fetch.fetch.data(), fetch, sizeof(per_fetch.fetch))) {
+        if (!Equal24(per_fetch.fetch.data(), fetch)) {
           ++(per_fetch.frame == UINT64_MAX ? fetch_empty_failures_ : fetch_failures_clash_);
         } else if (per_fetch.generation != generation_textures_) {
           ++fetch_failures_generation_;
