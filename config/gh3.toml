@@ -44,6 +44,31 @@ sa2_native_logical_resolved_size = false
 # Tambien puedes configurarlo colocando un archivo llamado 'config' junto al .nro con un 1 o un 0.
 gh3_performance_mode = true
 
+# Soporte para Guitarras oficiales de Guitar Hero:
+# 0: Mando estándar (por defecto, para jugar con Joy-Cons o Pro Controller)
+# 1: Wii Mote / Guitarra de Wii (a través de MissionControl Bluetooth o adaptadores USB)
+#    (Mapeo: L=Verde, ZL=Rojo, R=Amarillo, ZR=Azul, B=Naranja, Strumbar D-pad, Whammy stick derecho)
+# 2: Guitarra Estándar USB (para guitarras de Xbox 360 como X-Plorer, PS3, Santroller / Raspberry Pi Pico, USB con sys-con o adaptador)
+#    (Mapeo: A/B/X/Y/L, D-Pad para rasgueo, palanca analógica o ZR para Whammy, Minus para Star Power)
+# Tambien puedes configurarlo en el archivo 'config' junto al .nro:
+# guitar=0 (Mando), guitar=1 (Wii Mote), o guitar=2 (Guitarra Estándar).
+input_guitar_mode = 0
+input_wii_guitar = false
+
+# Idioma del juego (si la copia de tu juego es multilenguaje):
+# 0: Auto (Detecta automáticamente el idioma de la Nintendo Switch: Español, Inglés, Francés, Alemán, Italiano, etc.)
+# 1: Inglés (English)
+# 2: Japonés (Japanese)
+# 3: Alemán (Deutsch)
+# 4: Francés (Français)
+# 5: Español (Spanish)
+# 6: Italiano (Italiano)
+# 9: Portugués (Português)
+# 12: Ruso (Russian)
+# También puedes configurarlo en el archivo 'config' junto al .nro poniendo:
+# language=auto, language=es, language=en, language=fr, language=de, language=it, etc.
+gh3_language = 0
+
 # Optimizaciones CPU y Ring Thread (60 FPS)
 sa2_cpu_enhancements = true
 sa2_noncpu_enhancements = true

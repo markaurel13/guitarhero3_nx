@@ -20,6 +20,10 @@
 #include <switch.h>
 #endif
 
+REXCVAR_DEFINE_INT32(gh3_language, 0, "Locale",
+                     "Language ID: 0=Auto (Switch console language), 1=English, 2=Japanese, 3=German, 4=French, "
+                     "5=Spanish, 6=Italian, 7=Korean, 8=TChinese, 9=Portuguese, 10=SChinese, 11=Polish, 12=Russian");
+
 REXCVAR_DEFINE_INT32(sa2_render_height_handheld, 720, "SA2",
                      "Render height in handheld mode (the PC's starting mode unless sa2_render_docked): 720 = the "
                      "game's own 1280x720. Any multiple of 180 from 360 to 2160 (others are rounded to the nearest); "
@@ -147,6 +151,53 @@ void RegisterKeys() {
   rex::ui::RegisterBind("bind_sa2_docked", "F9",
                         "Switch between the simulated docked and handheld modes (render resolution)",
                         [] { ToggleDocked(); });
+#endif
+}
+
+uint32_t DetectSwitchSystemLanguage() {
+#if REX_PLATFORM_SWITCH
+  SetLanguage set_lang = SetLanguage_ENUS;
+  u64 code = 0;
+  if (R_SUCCEEDED(setInitialize())) {
+    if (R_SUCCEEDED(setGetSystemLanguage(&code))) {
+      setMakeLanguage(code, &set_lang);
+    }
+    setExit();
+  }
+  switch (set_lang) {
+    case SetLanguage_JA:
+      return 2;  // Japanese (XLanguage::kJapanese)
+    case SetLanguage_ENUS:
+    case SetLanguage_ENGB:
+      return 1;  // English (XLanguage::kEnglish)
+    case SetLanguage_FR:
+    case SetLanguage_FRCA:
+      return 4;  // French (XLanguage::kFrench)
+    case SetLanguage_DE:
+      return 3;  // German (XLanguage::kGerman)
+    case SetLanguage_IT:
+      return 6;  // Italian (XLanguage::kItalian)
+    case SetLanguage_ES:
+    case SetLanguage_ES419:
+      return 5;  // Spanish (XLanguage::kSpanish)
+    case SetLanguage_ZHCN:
+    case SetLanguage_ZHHANS:
+      return 10; // Simplified Chinese (XLanguage::kSChinese)
+    case SetLanguage_KO:
+      return 7;  // Korean (XLanguage::kKorean)
+    case SetLanguage_PT:
+    case SetLanguage_PTBR:
+      return 9;  // Portuguese (XLanguage::kPortuguese)
+    case SetLanguage_RU:
+      return 12; // Russian (XLanguage::kRussian)
+    case SetLanguage_ZHTW:
+    case SetLanguage_ZHHANT:
+      return 8;  // Traditional Chinese (XLanguage::kTChinese)
+    default:
+      return 1;  // Default to English
+  }
+#else
+  return 1;
 #endif
 }
 

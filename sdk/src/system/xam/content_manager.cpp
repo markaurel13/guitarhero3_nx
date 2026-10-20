@@ -13,6 +13,8 @@
 #include <cstring>
 #include <queue>
 #include <string>
+#include <unordered_set>
+#include <vector>
 
 #include <fmt/format.h>
 
@@ -86,6 +88,11 @@ std::string SafeName(const std::string_view original) {
 
 // What is inside a container, for the log. It is the line that says whether the save has data or not.
 std::string ThatHasInside(const std::filesystem::path& folder) {
+  std::error_code ec;
+  if (!std::filesystem::is_directory(folder, ec)) {
+    auto sz = std::filesystem::file_size(folder, ec);
+    return fmt::format("STFS package file ({} B)", sz);
+  }
   std::string text;
   uint64_t total = 0;
   uint32_t how_many = 0;
@@ -204,9 +211,50 @@ ContentPackage::ContentPackage(KernelState* kernel_state, const std::string_view
   content_data_ = data;
 
   auto fs = kernel_state_->file_system();
-  auto device = std::make_unique<rex::filesystem::HostPathDevice>(device_path_, package_path, false,
-                                                                  /*allow_share_delete=*/true);
-  device->Initialize();
+  std::unique_ptr<rex::filesystem::Device> device;
+  if (std::filesystem::is_directory(package_path)) {
+    // Check if the directory wraps an STFS container file
+    bool is_stfs_folder = false;
+    for (const auto& f : rex::filesystem::ListFiles(package_path)) {
+      if (f.type == rex::filesystem::FileInfo::Type::kFile) {
+        if (rex::filesystem::StfsContainerDevice::ReadPackageHeader(package_path / f.name)) {
+          is_stfs_folder = true;
+          break;
+        }
+      }
+    }
+    if (is_stfs_folder) {
+      auto stfs_device =
+          std::make_unique<rex::filesystem::StfsContainerDevice>(device_path_, package_path);
+      stfs_device->Initialize();
+      for (size_t i = 0; i < 0x10; i++) {
+        if (stfs_device->header().header.licenses[i].license_flags) {
+          license_ |= stfs_device->header().header.licenses[i].license_bits;
+        }
+      }
+      if (license_ == 0) {
+        license_ = 1;
+      }
+      device = std::move(stfs_device);
+    } else {
+      device = std::make_unique<rex::filesystem::HostPathDevice>(device_path_, package_path, false,
+                                                                 /*allow_share_delete=*/true);
+      device->Initialize();
+    }
+  } else {
+    auto stfs_device =
+        std::make_unique<rex::filesystem::StfsContainerDevice>(device_path_, package_path);
+    stfs_device->Initialize();
+    for (size_t i = 0; i < 0x10; i++) {
+      if (stfs_device->header().header.licenses[i].license_flags) {
+        license_ |= stfs_device->header().header.licenses[i].license_bits;
+      }
+    }
+    if (license_ == 0) {
+      license_ = 1;  // Full license for DLC package
+    }
+    device = std::move(stfs_device);
+  }
   fs->RegisterDevice(std::move(device));
   fs->RegisterSymbolicLink(root_name_ + ":", device_path_);
 }
@@ -252,9 +300,29 @@ std::filesystem::path ContentManager::ResolvePackageRoot(uint64_t xuid, XContent
   auto title_id_str = fmt::format("{:08X}", title_id);
   auto content_type_str = fmt::format("{:08X}", uint32_t(content_type));
 
-  // Package root path:
-  // content_root/xuid/title_id/content_type/
-  return root_path_ / xuid_str / title_id_str / content_type_str;
+  // 1. Standard Xbox 360 path with 16 zeros: root_path_ / 0000000000000000 / 415607F7 / 00000002
+  auto p = root_path_ / xuid_str / title_id_str / content_type_str;
+  if (std::filesystem::exists(p)) {
+    return p;
+  }
+  // 2. Direct path without 16 zeros: root_path_ / 415607F7 / 00000002
+  auto p_no_xuid = root_path_ / title_id_str / content_type_str;
+  if (std::filesystem::exists(p_no_xuid)) {
+    return p_no_xuid;
+  }
+  // 3. Lowercase title ID: 415607f7
+  std::string title_lower = title_id_str;
+  for (char& c : title_lower) c = static_cast<char>(std::tolower(c));
+  auto p_lower = root_path_ / xuid_str / title_lower / content_type_str;
+  if (std::filesystem::exists(p_lower)) {
+    return p_lower;
+  }
+  auto p_lower_no_xuid = root_path_ / title_lower / content_type_str;
+  if (std::filesystem::exists(p_lower_no_xuid)) {
+    return p_lower_no_xuid;
+  }
+  // Default canonical path
+  return p;
 }
 
 std::filesystem::path ContentManager::ResolvePackagePath(uint64_t xuid,
@@ -266,10 +334,72 @@ std::filesystem::path ContentManager::ResolvePackagePath(uint64_t xuid,
     used_xuid = 0;
   }
 
-  // Content path:
-  // content_root/xuid/title_id/content_type/data_file_name/
-  auto package_root = ResolvePackageRoot(used_xuid, data.content_type, data.title_id);
-  return package_root / rex::to_path(data.file_name());
+  uint32_t tid = (uint32_t(data.title_id) == kCurrentlyRunningTitleId) ? kernel_state_->title_id()
+                                                                       : uint32_t(data.title_id);
+  auto xuid_str = fmt::format("{:016X}", used_xuid);
+  auto title_id_str = fmt::format("{:08X}", tid);
+  auto content_type_str = fmt::format("{:08X}", uint32_t(XContentType(data.content_type)));
+  auto fname = rex::to_path(data.file_name());
+
+  std::string title_lower = title_id_str;
+  for (char& c : title_lower) c = static_cast<char>(std::tolower(c));
+
+  std::filesystem::path clean_root = root_path_;
+  std::string clean_str = clean_root.string();
+  while (clean_str.size() > 1 && (clean_str.back() == '/' || clean_str.back() == '\\')) {
+    clean_str.pop_back();
+  }
+  clean_root = std::filesystem::path(clean_str);
+
+  // Candidate paths where the package file or directory might exist:
+  std::vector<std::filesystem::path> candidates;
+
+  if (data.content_type == XContentType::kMarketplaceContent) {
+    auto exe_dir = rex::filesystem::GetExecutableFolder();
+    if (!exe_dir.empty()) {
+      candidates.push_back(exe_dir / "dlc" / fname);
+      candidates.push_back(exe_dir / "DLCs" / fname);
+      candidates.push_back(exe_dir / "dlc" / title_id_str / content_type_str / fname);
+      candidates.push_back(exe_dir / "dlc" / title_lower / content_type_str / fname);
+      candidates.push_back(exe_dir / title_id_str / content_type_str / fname);
+      candidates.push_back(exe_dir / title_lower / content_type_str / fname);
+    }
+    candidates.push_back(std::filesystem::path("/switch/gh3-nx/dlc") / fname);
+    candidates.push_back(std::filesystem::path("/switch/gh3-nx/DLCs") / fname);
+    candidates.push_back(std::filesystem::path("sdmc:/switch/gh3-nx/dlc") / fname);
+    candidates.push_back(std::filesystem::path("sdmc:/switch/gh3-nx/DLCs") / fname);
+
+    candidates.push_back(clean_root.parent_path() / "dlc" / fname);
+    candidates.push_back(clean_root.parent_path() / "DLCs" / fname);
+    candidates.push_back(clean_root / "dlc" / fname);
+    candidates.push_back(clean_root / "DLCs" / fname);
+    candidates.push_back(std::filesystem::path("dlc") / fname);
+    candidates.push_back(std::filesystem::path("DLCs") / fname);
+
+    candidates.push_back(clean_root.parent_path() / "dlc" / title_id_str / content_type_str / fname);
+    candidates.push_back(clean_root.parent_path() / "dlc" / title_lower / content_type_str / fname);
+    candidates.push_back(clean_root / "dlc" / title_id_str / content_type_str / fname);
+    candidates.push_back(clean_root / "dlc" / title_lower / content_type_str / fname);
+    candidates.push_back(clean_root.parent_path() / title_id_str / content_type_str / fname);
+    candidates.push_back(clean_root.parent_path() / title_lower / content_type_str / fname);
+  }
+
+  // Standard gh3recomp search paths (with or without 16 zeros)
+  candidates.push_back(clean_root / xuid_str / title_id_str / content_type_str / fname);
+  candidates.push_back(clean_root / title_id_str / content_type_str / fname);
+  candidates.push_back(clean_root / xuid_str / title_lower / content_type_str / fname);
+  candidates.push_back(clean_root / title_lower / content_type_str / fname);
+
+  for (const auto& candidate : candidates) {
+    std::error_code ec;
+    if (std::filesystem::exists(candidate, ec)) {
+      return candidate;
+    }
+  }
+
+  // Fallback canonical path
+  auto package_root = ResolvePackageRoot(used_xuid, data.content_type, tid);
+  return package_root / fname;
 }
 
 std::filesystem::path ContentManager::ResolvePackageHeaderPath(const std::string_view file_name,
@@ -303,36 +433,171 @@ std::vector<XCONTENT_AGGREGATE_DATA> ContentManager::ListContent(uint32_t device
     title_id = kernel_state_->title_id();
   }
 
-  // Search path:
-  // content_root/xuid/title_id/type_name/*
-  auto package_root = ResolvePackageRoot(xuid, content_type, title_id);
-  auto file_infos = rex::filesystem::ListFiles(package_root);
-  for (const auto& file_info : file_infos) {
-    if (file_info.type != rex::filesystem::FileInfo::Type::kDirectory) {
-      // Directories only.
-      continue;
-    }
+  auto xuid_str = fmt::format("{:016X}", xuid);
+  auto title_id_str = fmt::format("{:08X}", title_id);
+  auto content_type_str = fmt::format("{:08X}", uint32_t(content_type));
 
-    XCONTENT_AGGREGATE_DATA content_data;
-    if (XSUCCEEDED(ReadContentHeaderFile(rex::path_to_utf8(file_info.name), xuid, title_id,
-                                         content_type, content_data))) {
-      result.emplace_back(std::move(content_data));
-    } else {
-      content_data.device_id = device_id;
-      content_data.content_type = content_type;
-      content_data.set_display_name(rex::path_to_utf16(file_info.name));
-      content_data.set_file_name(rex::path_to_utf8(file_info.name));
-      content_data.title_id = title_id;
-      content_data.xuid = xuid;
-      result.emplace_back(std::move(content_data));
+  std::string title_lower = title_id_str;
+  for (char& c : title_lower) c = static_cast<char>(std::tolower(c));
+
+  std::filesystem::path clean_root = root_path_;
+  std::string clean_str = clean_root.string();
+  while (clean_str.size() > 1 && (clean_str.back() == '/' || clean_str.back() == '\\')) {
+    clean_str.pop_back();
+  }
+  clean_root = std::filesystem::path(clean_str);
+
+  std::vector<std::filesystem::path> search_paths;
+  auto add_search_path = [&](const std::filesystem::path& p) {
+    std::error_code ec;
+    if (std::filesystem::exists(p, ec) && std::filesystem::is_directory(p, ec)) {
+      for (const auto& existing : search_paths) {
+        if (existing == p) return;
+      }
+      search_paths.push_back(p);
+    }
+  };
+
+  if (content_type == XContentType::kMarketplaceContent) {
+    auto exe_dir = rex::filesystem::GetExecutableFolder();
+    if (!exe_dir.empty()) {
+      add_search_path(exe_dir / "dlc");
+      add_search_path(exe_dir / "DLCs");
+      add_search_path(exe_dir / "dlc" / title_id_str / content_type_str);
+      add_search_path(exe_dir / "dlc" / title_lower / content_type_str);
+      add_search_path(exe_dir / title_id_str / content_type_str);
+      add_search_path(exe_dir / title_lower / content_type_str);
+    }
+    add_search_path("/switch/gh3-nx/dlc");
+    add_search_path("/switch/gh3-nx/DLCs");
+    add_search_path("sdmc:/switch/gh3-nx/dlc");
+    add_search_path("sdmc:/switch/gh3-nx/DLCs");
+
+    add_search_path(clean_root.parent_path() / "dlc");
+    add_search_path(clean_root.parent_path() / "DLCs");
+    add_search_path(clean_root / "dlc");
+    add_search_path(clean_root / "DLCs");
+    add_search_path(std::filesystem::path("dlc"));
+    add_search_path(std::filesystem::path("DLCs"));
+
+    add_search_path(clean_root.parent_path() / "dlc" / title_id_str / content_type_str);
+    add_search_path(clean_root.parent_path() / "dlc" / title_lower / content_type_str);
+    add_search_path(clean_root / "dlc" / title_id_str / content_type_str);
+    add_search_path(clean_root / "dlc" / title_lower / content_type_str);
+    add_search_path(clean_root.parent_path() / title_id_str / content_type_str);
+    add_search_path(clean_root.parent_path() / title_lower / content_type_str);
+  }
+
+  // Standard gh3recomp search paths (with or without 16 zeros):
+  add_search_path(clean_root / xuid_str / title_id_str / content_type_str);
+  add_search_path(clean_root / title_id_str / content_type_str);
+  add_search_path(clean_root / xuid_str / title_lower / content_type_str);
+  add_search_path(clean_root / title_lower / content_type_str);
+
+  REXSYS_INFO("[dlc] ListContent: checking {} directories for content_type {:08X}",
+              search_paths.size(), uint32_t(content_type));
+  for (const auto& sp : search_paths) {
+    REXSYS_INFO("[dlc]   search path: {}", rex::path_to_utf8(sp));
+  }
+
+  std::unordered_set<std::string> seen_names;
+
+  for (const auto& package_root : search_paths) {
+    auto file_infos = rex::filesystem::ListFiles(package_root);
+    REXSYS_INFO("[dlc] in '{}', found {} item(s)", rex::path_to_utf8(package_root), file_infos.size());
+    for (const auto& file_info : file_infos) {
+      std::string name_str = rex::path_to_utf8(file_info.name);
+      if (seen_names.count(name_str)) {
+        continue;
+      }
+
+      // Skip structural folder names if scanning parent directory
+      if (name_str == title_id_str || name_str == title_lower || name_str == "00000002" ||
+          name_str == "0000000000000000" || name_str == "README.txt") {
+        continue;
+      }
+
+      if (file_info.type == rex::filesystem::FileInfo::Type::kFile) {
+        auto full_path = package_root / file_info.name;
+        REXSYS_INFO("[dlc] inspecting file candidate: '{}' ({} B)", rex::path_to_utf8(full_path), file_info.total_size);
+        auto stfs_header = rex::filesystem::StfsContainerDevice::ReadPackageHeader(full_path);
+        std::u16string disp;
+        if (stfs_header) {
+          disp = stfs_header->metadata.display_name(rex::system::XLanguage::kEnglish);
+          REXSYS_INFO("[dlc] -> STFS valid: '{}'", rex::string::to_utf8(disp));
+        } else {
+          REXSYS_WARN("[dlc] -> ReadPackageHeader returned null for {}", name_str);
+        }
+        if (disp.empty()) {
+          disp = rex::path_to_utf16(file_info.name);
+        }
+
+        if (stfs_header || (file_info.total_size > 32768 && content_type == XContentType::kMarketplaceContent)) {
+          XCONTENT_AGGREGATE_DATA content_data;
+          content_data.device_id = device_id;
+          content_data.content_type = content_type;
+          content_data.set_display_name(disp);
+          content_data.set_file_name(name_str);
+          content_data.title_id = title_id;
+          content_data.xuid = xuid;
+          result.emplace_back(std::move(content_data));
+          seen_names.insert(name_str);
+          REXSYS_INFO("[dlc] -> registered DLC package: '{}' (displayed as '{}')", name_str, rex::string::to_utf8(disp));
+          continue;
+        }
+        continue;
+      }
+
+      if (file_info.type == rex::filesystem::FileInfo::Type::kDirectory) {
+        // Check if directory wraps an STFS container inside
+        bool found_stfs_inside = false;
+        for (const auto& inner : rex::filesystem::ListFiles(package_root / file_info.name)) {
+          if (inner.type == rex::filesystem::FileInfo::Type::kFile) {
+            auto inner_path = package_root / file_info.name / inner.name;
+            auto inner_stfs = rex::filesystem::StfsContainerDevice::ReadPackageHeader(inner_path);
+            if (inner_stfs) {
+              XCONTENT_AGGREGATE_DATA content_data;
+              content_data.device_id = device_id;
+              content_data.content_type = content_type;
+              std::u16string disp = inner_stfs->metadata.display_name(rex::system::XLanguage::kEnglish);
+              if (disp.empty()) {
+                disp = rex::path_to_utf16(file_info.name);
+              }
+              content_data.set_display_name(disp);
+              content_data.set_file_name(name_str);
+              content_data.title_id = title_id;
+              content_data.xuid = xuid;
+              result.emplace_back(std::move(content_data));
+              seen_names.insert(name_str);
+              found_stfs_inside = true;
+              break;
+            }
+          }
+        }
+        if (found_stfs_inside) {
+          continue;
+        }
+
+        XCONTENT_AGGREGATE_DATA content_data;
+        if (XSUCCEEDED(ReadContentHeaderFile(name_str, xuid, title_id,
+                                             content_type, content_data))) {
+          result.emplace_back(std::move(content_data));
+        } else {
+          content_data.device_id = device_id;
+          content_data.content_type = content_type;
+          content_data.set_display_name(rex::path_to_utf16(file_info.name));
+          content_data.set_file_name(name_str);
+          content_data.title_id = title_id;
+          content_data.xuid = xuid;
+          result.emplace_back(std::move(content_data));
+        }
+        seen_names.insert(name_str);
+      }
     }
   }
 
-  // What the game sees when it asks for the list of saves. If a profile that exists on disk does not show
-  // up here, the problem is the enumeration; if it shows up and is then reported as damaged, the problem
-  // is its contents.
-  REXSYS_INFO("[save] list type {:08X} in {}: {} entry(ies)", uint32_t(content_type),
-              rex::path_to_utf8(package_root), result.size());
+  // What the game sees when it asks for the list of saves / DLCs.
+  REXSYS_INFO("[save] list type {:08X}: {} entry(ies)", uint32_t(content_type), result.size());
   for (const auto& entry : result) {
     REXSYS_INFO("[save]   '{}' (displayed as '{}')", entry.file_name(),
                 rex::string::to_utf8(entry.display_name()));

@@ -338,17 +338,120 @@ class Gh3App : public rex::ReXApp {
             }
 #if defined(__SWITCH__)
             if (trimmed.find("swap_interval=0") != std::string::npos ||
-                trimmed.find("swap_interval = 0") != std::string::npos) {
+                trimmed.find("swap_interval = 0") != std::string::npos ||
+                trimmed.find("fps=0") != std::string::npos ||
+                trimmed.find("fps = 0") != std::string::npos) {
               s_override_swap_interval = 0;
               REXLOG_INFO("[GH3] Config file '{}': swap_interval forced to 0 (unlocked)", cfg_name);
             } else if (trimmed.find("swap_interval=1") != std::string::npos ||
-                       trimmed.find("swap_interval = 1") != std::string::npos) {
+                       trimmed.find("swap_interval = 1") != std::string::npos ||
+                       trimmed.find("fps=60") != std::string::npos ||
+                       trimmed.find("fps = 60") != std::string::npos) {
               s_override_swap_interval = 1;
               REXLOG_INFO("[GH3] Config file '{}': swap_interval forced to 1 (60 FPS)", cfg_name);
             } else if (trimmed.find("swap_interval=2") != std::string::npos ||
-                       trimmed.find("swap_interval = 2") != std::string::npos) {
+                       trimmed.find("swap_interval = 2") != std::string::npos ||
+                       trimmed.find("fps=30") != std::string::npos ||
+                       trimmed.find("fps = 30") != std::string::npos) {
               s_override_swap_interval = 2;
               REXLOG_INFO("[GH3] Config file '{}': swap_interval forced to 2 (30 FPS)", cfg_name);
+            }
+            if (trimmed.find("guitar=wii") != std::string::npos ||
+                trimmed.find("guitar = wii") != std::string::npos ||
+                trimmed.find("guitar=1") != std::string::npos ||
+                trimmed.find("guitar = 1") != std::string::npos ||
+                trimmed.find("wii_guitar=1") != std::string::npos ||
+                trimmed.find("wii_guitar = 1") != std::string::npos ||
+                trimmed.find("wii_guitar=true") != std::string::npos ||
+                trimmed.find("wii_guitar = true") != std::string::npos ||
+                trimmed.find("input_guitar_mode=1") != std::string::npos ||
+                trimmed.find("input_guitar_mode = 1") != std::string::npos) {
+              REXCVAR_SET(input_guitar_mode, 1);
+              REXCVAR_SET(input_wii_guitar, true);
+              REXLOG_INFO("[GH3] Config file '{}': WII GUITAR / WIIMOTE mode ENABLED (guitar=1, 0x06)", cfg_name);
+            } else if (trimmed.find("guitar=standard") != std::string::npos ||
+                       trimmed.find("guitar = standard") != std::string::npos ||
+                       trimmed.find("guitar=xbox") != std::string::npos ||
+                       trimmed.find("guitar = xbox") != std::string::npos ||
+                       trimmed.find("guitar=usb") != std::string::npos ||
+                       trimmed.find("guitar = usb") != std::string::npos ||
+                       trimmed.find("guitar=2") != std::string::npos ||
+                       trimmed.find("guitar = 2") != std::string::npos ||
+                       trimmed.find("standard_guitar=1") != std::string::npos ||
+                       trimmed.find("standard_guitar = 1") != std::string::npos ||
+                       trimmed.find("input_guitar_mode=2") != std::string::npos ||
+                       trimmed.find("input_guitar_mode = 2") != std::string::npos) {
+              REXCVAR_SET(input_guitar_mode, 2);
+              REXCVAR_SET(input_wii_guitar, false);
+              REXLOG_INFO("[GH3] Config file '{}': STANDARD GUITAR mode ENABLED (guitar=2, 0x06, Xbox 360/PS3/Santroller/USB)", cfg_name);
+            } else if (trimmed.find("guitar=0") != std::string::npos ||
+                       trimmed.find("guitar = 0") != std::string::npos ||
+                       trimmed.find("guitar=none") != std::string::npos ||
+                       trimmed.find("guitar = none") != std::string::npos ||
+                       trimmed.find("guitar=false") != std::string::npos ||
+                       trimmed.find("guitar = false") != std::string::npos ||
+                       trimmed.find("wii_guitar=0") != std::string::npos ||
+                       trimmed.find("wii_guitar = 0") != std::string::npos ||
+                       trimmed.find("input_guitar_mode=0") != std::string::npos ||
+                       trimmed.find("input_guitar_mode = 0") != std::string::npos) {
+              REXCVAR_SET(input_guitar_mode, 0);
+              REXCVAR_SET(input_wii_guitar, false);
+              REXLOG_INFO("[GH3] Config file '{}': Guitar mode DISABLED (guitar=0, Standard Gamepad 0x01)", cfg_name);
+            }
+            if (trimmed.find("language=auto") != std::string::npos ||
+                trimmed.find("language = auto") != std::string::npos ||
+                trimmed.find("language=0") != std::string::npos ||
+                trimmed.find("language = 0") != std::string::npos) {
+              REXCVAR_SET(gh3_language, 0);
+              REXLOG_INFO("[GH3] Config file '{}': Language set to AUTO (detect from console)", cfg_name);
+            } else if (trimmed.find("language=es") != std::string::npos ||
+                       trimmed.find("language = es") != std::string::npos ||
+                       trimmed.find("language=spanish") != std::string::npos ||
+                       trimmed.find("language = spanish") != std::string::npos ||
+                       trimmed.find("language=5") != std::string::npos ||
+                       trimmed.find("language = 5") != std::string::npos) {
+              REXCVAR_SET(gh3_language, 5);
+              REXLOG_INFO("[GH3] Config file '{}': Language forced to SPANISH (5)", cfg_name);
+            } else if (trimmed.find("language=en") != std::string::npos ||
+                       trimmed.find("language = en") != std::string::npos ||
+                       trimmed.find("language=english") != std::string::npos ||
+                       trimmed.find("language = english") != std::string::npos ||
+                       trimmed.find("language=1") != std::string::npos ||
+                       trimmed.find("language = 1") != std::string::npos) {
+              REXCVAR_SET(gh3_language, 1);
+              REXLOG_INFO("[GH3] Config file '{}': Language forced to ENGLISH (1)", cfg_name);
+            } else if (trimmed.find("language=fr") != std::string::npos ||
+                       trimmed.find("language = fr") != std::string::npos ||
+                       trimmed.find("language=french") != std::string::npos ||
+                       trimmed.find("language = french") != std::string::npos ||
+                       trimmed.find("language=4") != std::string::npos ||
+                       trimmed.find("language = 4") != std::string::npos) {
+              REXCVAR_SET(gh3_language, 4);
+              REXLOG_INFO("[GH3] Config file '{}': Language forced to FRENCH (4)", cfg_name);
+            } else if (trimmed.find("language=de") != std::string::npos ||
+                       trimmed.find("language = de") != std::string::npos ||
+                       trimmed.find("language=german") != std::string::npos ||
+                       trimmed.find("language = german") != std::string::npos ||
+                       trimmed.find("language=3") != std::string::npos ||
+                       trimmed.find("language = 3") != std::string::npos) {
+              REXCVAR_SET(gh3_language, 3);
+              REXLOG_INFO("[GH3] Config file '{}': Language forced to GERMAN (3)", cfg_name);
+            } else if (trimmed.find("language=it") != std::string::npos ||
+                       trimmed.find("language = it") != std::string::npos ||
+                       trimmed.find("language=italian") != std::string::npos ||
+                       trimmed.find("language = italian") != std::string::npos ||
+                       trimmed.find("language=6") != std::string::npos ||
+                       trimmed.find("language = 6") != std::string::npos) {
+              REXCVAR_SET(gh3_language, 6);
+              REXLOG_INFO("[GH3] Config file '{}': Language forced to ITALIAN (6)", cfg_name);
+            } else if (trimmed.find("language=pt") != std::string::npos ||
+                       trimmed.find("language = pt") != std::string::npos ||
+                       trimmed.find("language=portuguese") != std::string::npos ||
+                       trimmed.find("language = portuguese") != std::string::npos ||
+                       trimmed.find("language=9") != std::string::npos ||
+                       trimmed.find("language = 9") != std::string::npos) {
+              REXCVAR_SET(gh3_language, 9);
+              REXLOG_INFO("[GH3] Config file '{}': Language forced to PORTUGUESE (9)", cfg_name);
             }
 #endif
           }
@@ -375,9 +478,43 @@ class Gh3App : public rex::ReXApp {
     rex::cvar::SetFlagByName("sa2_native_depth_samples_x", "false");
     rex::cvar::SetFlagByName("sa2_native_resolved_read_texels", "0");
 #endif
+    // Language detection: Auto (from Switch OS) or user override
+    uint32_t active_lang = static_cast<uint32_t>(REXCVAR_GET(gh3_language));
+    if (active_lang == 0) {
+      active_lang = sa2::render::DetectSwitchSystemLanguage();
+    }
+    REXCVAR_SET(user_language, active_lang);
+
+    auto lang_name = [](uint32_t l) -> const char* {
+      switch (l) {
+        case 1: return "English";
+        case 2: return "Japanese";
+        case 3: return "German";
+        case 4: return "French";
+        case 5: return "Spanish";
+        case 6: return "Italian";
+        case 7: return "Korean";
+        case 8: return "Traditional Chinese";
+        case 9: return "Portuguese";
+        case 10: return "Simplified Chinese";
+        case 11: return "Polish";
+        case 12: return "Russian";
+        default: return "English (fallback)";
+      }
+    };
+    REXLOG_INFO("[GH3] Active language: {} ({}) [source: {}]",
+                lang_name(active_lang), active_lang,
+                REXCVAR_GET(gh3_language) == 0 ? "Switch OS Auto-Detect" : "Config Override");
+
     REXLOG_INFO("[GH3] Active game mode: {}", REXCVAR_GET(gh3_performance_mode) ? "PERFORMANCE (60 FPS, optimized 3D venue)" : "QUALITY (30 FPS rock-solid, full 3D venue & shadows)");
     REXLOG_INFO("[GH3] Active venue sub-stepping: DISABLED (full frame note cadence)");
     REXLOG_INFO("[GH3] Active switch_exclusive_core: {}", REXCVAR_GET(switch_exclusive_core));
+    const int32_t gmode = (REXCVAR_GET(input_guitar_mode) != 0) ? REXCVAR_GET(input_guitar_mode) :
+                          (REXCVAR_GET(input_wii_guitar) ? 1 : 0);
+    const char* gstr = (gmode == 1) ? "WII GUITAR / WIIMOTE (guitar=1, 0x06)" :
+                       (gmode == 2) ? "STANDARD GUITAR (guitar=2, 0x06, Xbox 360/PS3/Santroller/USB)" :
+                       "STANDARD GAMEPAD (guitar=0, 0x01)";
+    REXLOG_INFO("[GH3] Active controller mode: {}", gstr);
   }
 
   void OnPreSetup(rex::RuntimeConfig& config) override {

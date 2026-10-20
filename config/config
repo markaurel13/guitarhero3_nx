@@ -1,11 +1,30 @@
-# Guitar Hero 3 NX - Config
-# Game Mode:
-# 0 = QUALITY MODE (Full Xbox 360 dynamic shadows, requires CPU/GPU overclock)
-# 1 = PERFORMANCE MODE (Optimized Wii-style 3D venue, perfect for STOCK Switch clocks)
+# ==============================================================================
+# GUITAR HERO III NX - CONFIGURATION FILE
+# ==============================================================================
+
+# 1. Game mode:
+# 1 = PERFORMANCE MODE (Optimized venue, 60 FPS recommended)
+# 0 = QUALITY MODE (Full Xbox 360 dynamic shadows and 3D venue, 30 FPS)
 game_mode = 1
 
-# Swap interval:
-# 0 = NON-BLOCKING TRIPLE BUFFER (Smooth, 0ms acquire wait, recommended for STOCK Switch clocks to avoid 15 FPS drop!)
-# 1 = 60 FPS VSYNC (requires CPU overclock)
-# 2 = 30 FPS VSYNC (Rock-solid frame pacing, 33.3ms cadence on Horizon compositor)
+# 2. Swap interval:
+# 2 = 30 FPS VSYNC (Rock-solid frame pacing, default)
+# 1 = 60 FPS VSYNC (Smooth 60 FPS cadence)
+# 0 = UNLOCKED / TRIPLE BUFFER (Non-blocking presentation)
 swap_interval = 2
+
+# 3. Controller mode:
+# 0 = STANDARD CONTROLLER (Joy-Cons, Switch Pro Controller)
+# 1 = WII REMOTE / WII GUITAR (Connected via Bluetooth with MissionControl)
+# 2 = STANDARD USB GUITAR (Xbox 360 X-Plorer, PS3, Santroller / RP2040)
+guitar = 0
+
+# 4. Game language (only if your game copy is multilingual):
+# auto = Automatically detects your Nintendo Switch system language
+# es   = Spanish
+# en   = English
+# fr   = French
+# de   = German
+# it   = Italian
+# pt   = Portuguese
+language = auto

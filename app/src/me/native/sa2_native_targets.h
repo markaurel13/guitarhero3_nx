@@ -14,6 +14,10 @@
 REXCVAR_DECLARE(bool, gh3_performance_mode);
 REXCVAR_DECLARE(bool, gh3_venue_substep);
 REXCVAR_DECLARE(int32_t, switch_exclusive_core);
+REXCVAR_DECLARE(int32_t, input_guitar_mode);
+REXCVAR_DECLARE(bool, input_wii_guitar);
+REXCVAR_DECLARE(int32_t, gh3_language);
+REXCVAR_DECLARE(uint32_t, user_language);
 
 #include <array>
 #include <cstdint>

@@ -35,6 +35,14 @@ REXCVAR_DEFINE_BOOL(input_xbox_layout, true, "Input",
                     "Face buttons by position, as on an Xbox 360 pad (the bottom button, B, acts as A). "
                     "false = by letter: the Switch's A acts as A");
 
+// Guitar support: 0 = disabled (standard gamepad), 1 = Wii guitar / Wiimote (MissionControl), 2 = Standard guitar (Xbox 360, PS3, Santroller, USB).
+REXCVAR_DEFINE_INT32(input_guitar_mode, 0, "Input",
+                     "Guitar mode: 0=Disabled (Gamepad), 1=Wii guitar / Wiimote (MissionControl), 2=Standard guitar (Xbox 360/PS3/Santroller/USB)");
+
+// Wii Guitar support (legacy boolean alias).
+REXCVAR_DEFINE_BOOL(input_wii_guitar, false, "Input",
+                    "Legacy toggle for Wii guitar mode (MissionControl). When true, behaves like input_guitar_mode=1");
+
 // Remapping, per player: which Switch buttons press each Xbox 360 button, read at start (sa2.toml sections
 // [input_p1] and [input_p2]: a = "B, ZR" there is input_p1_a). Empty = the default (the layout above for A/B/X/Y; for
 // the rest, the button in the same place). A comma-separated list of: A B X Y L R ZL ZR PLUS MINUS LSTICK RSTICK UP
@@ -594,22 +602,106 @@ void SwitchInputDriver::Poll(size_t index) {
   }
   DispatchMenuShortcuts(slot, held);
   X_INPUT_GAMEPAD gamepad{};
-  const ButtonTable& table = g_tables[slot.ordinal == 1 ? 1 : 0][REXCVAR_GET(input_xbox_layout) ? 1 : 0];
-  uint16_t buttons = 0;
-  for (int i = 0; i < 16; ++i) {
-    if (held & table.buttons[i]) {
-      buttons |= uint16_t(1u << i);
-    }
+  int32_t guitar_mode = REXCVAR_GET(input_guitar_mode);
+  if (guitar_mode == 0 && REXCVAR_GET(input_wii_guitar)) {
+    guitar_mode = 1;
   }
-  gamepad.buttons = buttons;
-  // ZL and ZR are digital.
-  gamepad.left_trigger = (held & table.left_trigger) ? 0xFF : 0;
-  gamepad.right_trigger = (held & table.right_trigger) ? 0xFF : 0;
-  // HID reports up as positive Y, like XInput, so no inversion is needed.
-  gamepad.thumb_lx = ClampStickAxis(left.x);
-  gamepad.thumb_ly = ClampStickAxis(left.y);
-  gamepad.thumb_rx = ClampStickAxis(right.x);
-  gamepad.thumb_ry = ClampStickAxis(right.y);
+  if (guitar_mode == 1) {
+    // Mode 1: Wii Guitar / Wiimote (MissionControl Bluetooth mapping)
+    uint16_t guitar_buttons = 0;
+    // Frets (MissionControl Wii Guitar mapping):
+    // Green: L or A
+    if (held & (HidNpadButton_L | HidNpadButton_A))
+      guitar_buttons |= X_INPUT_GAMEPAD_A;
+    // Red: ZL
+    if (held & HidNpadButton_ZL)
+      guitar_buttons |= X_INPUT_GAMEPAD_B;
+    // Yellow: R or Y
+    if (held & (HidNpadButton_R | HidNpadButton_Y))
+      guitar_buttons |= X_INPUT_GAMEPAD_Y;
+    // Blue: ZR or X
+    if (held & (HidNpadButton_ZR | HidNpadButton_X))
+      guitar_buttons |= X_INPUT_GAMEPAD_X;
+    // Orange: B (MissionControl sends B for Orange fret)
+    if (held & HidNpadButton_B)
+      guitar_buttons |= X_INPUT_GAMEPAD_LEFT_SHOULDER;
+
+    // Strum & Navigation:
+    if (held & HidNpadButton_Up)    guitar_buttons |= X_INPUT_GAMEPAD_DPAD_UP;
+    if (held & HidNpadButton_Down)  guitar_buttons |= X_INPUT_GAMEPAD_DPAD_DOWN;
+    if (held & HidNpadButton_Left)  guitar_buttons |= X_INPUT_GAMEPAD_DPAD_LEFT;
+    if (held & HidNpadButton_Right) guitar_buttons |= X_INPUT_GAMEPAD_DPAD_RIGHT;
+
+    // Start / Pause:
+    if (held & HidNpadButton_Plus)  guitar_buttons |= X_INPUT_GAMEPAD_START;
+    // Star Power / Select:
+    if (held & HidNpadButton_Minus) guitar_buttons |= X_INPUT_GAMEPAD_BACK;
+
+    gamepad.buttons = guitar_buttons;
+    gamepad.left_trigger = 0;
+    gamepad.right_trigger = 0;
+    gamepad.thumb_lx = ClampStickAxis(left.x);
+    gamepad.thumb_ly = ClampStickAxis(left.y);
+    gamepad.thumb_rx = ClampStickAxis(right.x);
+    gamepad.thumb_ry = ClampStickAxis(right.y);
+  } else if (guitar_mode == 2) {
+    // Mode 2: Standard Guitar (Xbox 360 X-Plorer, PS3, Santroller, USB via sys-con / adapter)
+    uint16_t guitar_buttons = 0;
+    const bool xbox_layout = REXCVAR_GET(input_xbox_layout);
+    // Frets:
+    // Green (Xbox A): B in Xbox layout or A in Nintendo layout
+    if (held & (xbox_layout ? HidNpadButton_B : HidNpadButton_A))
+      guitar_buttons |= X_INPUT_GAMEPAD_A;
+    // Red (Xbox B): A in Xbox layout or B in Nintendo layout
+    if (held & (xbox_layout ? HidNpadButton_A : HidNpadButton_B))
+      guitar_buttons |= X_INPUT_GAMEPAD_B;
+    // Yellow (Xbox Y): X in Xbox layout or Y in Nintendo layout
+    if (held & (xbox_layout ? HidNpadButton_X : HidNpadButton_Y))
+      guitar_buttons |= X_INPUT_GAMEPAD_Y;
+    // Blue (Xbox X): Y in Xbox layout or X in Nintendo layout
+    if (held & (xbox_layout ? HidNpadButton_Y : HidNpadButton_X))
+      guitar_buttons |= X_INPUT_GAMEPAD_X;
+    // Orange (Xbox LB): L or ZL
+    if (held & (HidNpadButton_L | HidNpadButton_ZL))
+      guitar_buttons |= X_INPUT_GAMEPAD_LEFT_SHOULDER;
+
+    // Strum & Navigation:
+    if (held & HidNpadButton_Up)    guitar_buttons |= X_INPUT_GAMEPAD_DPAD_UP;
+    if (held & HidNpadButton_Down)  guitar_buttons |= X_INPUT_GAMEPAD_DPAD_DOWN;
+    if (held & HidNpadButton_Left)  guitar_buttons |= X_INPUT_GAMEPAD_DPAD_LEFT;
+    if (held & HidNpadButton_Right) guitar_buttons |= X_INPUT_GAMEPAD_DPAD_RIGHT;
+
+    // Start / Pause:
+    if (held & HidNpadButton_Plus)  guitar_buttons |= X_INPUT_GAMEPAD_START;
+    // Star Power / Select:
+    if (held & HidNpadButton_Minus) guitar_buttons |= X_INPUT_GAMEPAD_BACK;
+
+    gamepad.buttons = guitar_buttons;
+    gamepad.left_trigger = 0;
+    // Whammy: Right Stick or ZR
+    gamepad.right_trigger = (held & HidNpadButton_ZR) ? 0xFF : 0;
+    gamepad.thumb_lx = ClampStickAxis(left.x);
+    gamepad.thumb_ly = ClampStickAxis(left.y);
+    gamepad.thumb_rx = ClampStickAxis(right.x);
+    gamepad.thumb_ry = ClampStickAxis(right.y);
+  } else {
+    const ButtonTable& table = g_tables[slot.ordinal == 1 ? 1 : 0][REXCVAR_GET(input_xbox_layout) ? 1 : 0];
+    uint16_t buttons = 0;
+    for (int i = 0; i < 16; ++i) {
+      if (held & table.buttons[i]) {
+        buttons |= uint16_t(1u << i);
+      }
+    }
+    gamepad.buttons = buttons;
+    // ZL and ZR are digital.
+    gamepad.left_trigger = (held & table.left_trigger) ? 0xFF : 0;
+    gamepad.right_trigger = (held & table.right_trigger) ? 0xFF : 0;
+    // HID reports up as positive Y, like XInput, so no inversion is needed.
+    gamepad.thumb_lx = ClampStickAxis(left.x);
+    gamepad.thumb_ly = ClampStickAxis(left.y);
+    gamepad.thumb_rx = ClampStickAxis(right.x);
+    gamepad.thumb_ry = ClampStickAxis(right.y);
+  }
   /*
    * With the debug overlay open, L+R and the right stick move it (debug_overlay.cpp,
    * on the UI thread). While L and R are held, the game sees neither those two
@@ -619,7 +711,7 @@ void SwitchInputDriver::Poll(size_t index) {
   if ((held & kMoveOverlay) == kMoveOverlay && rex::ui::DebugOverlayOpen()) {
     // The XInput state fields are stored big-endian: they are rewritten whole.
     gamepad.buttons = static_cast<uint16_t>(
-        buttons & ~(X_INPUT_GAMEPAD_LEFT_SHOULDER | X_INPUT_GAMEPAD_RIGHT_SHOULDER));
+        gamepad.buttons & ~(X_INPUT_GAMEPAD_LEFT_SHOULDER | X_INPUT_GAMEPAD_RIGHT_SHOULDER));
     gamepad.thumb_rx = static_cast<int16_t>(0);
     gamepad.thumb_ry = static_cast<int16_t>(0);
   }
@@ -834,7 +926,9 @@ X_RESULT SwitchInputDriver::GetDeviceCapabilities(DeviceId id, uint32_t flags,
   }
   std::memset(out_caps, 0, sizeof(*out_caps));
   out_caps->type = 0x01;      // XINPUT_DEVTYPE_GAMEPAD
-  out_caps->sub_type = 0x01;  // XINPUT_DEVSUBTYPE_GAMEPAD
+  const int32_t guitar_mode = REXCVAR_GET(input_guitar_mode);
+  const bool is_guitar = (guitar_mode != 0) || REXCVAR_GET(input_wii_guitar);
+  out_caps->sub_type = is_guitar ? 0x06 : 0x01;  // 0x06 = XINPUT_DEVSUBTYPE_GUITAR, 0x01 = GAMEPAD
   const bool handheld = slot->npad_id == HidNpadIdType_Handheld;
   out_caps->flags = handheld ? 0 : X_INPUT_CAPS_WIRELESS;
   out_caps->gamepad.buttons = 0xF3FF;

@@ -40,4 +40,7 @@ void NoteMsaaUse(uint64_t n = 1);
 // PC: registers the dock-toggle key (bind_sa2_docked). Called once by the app after setup.
 void RegisterKeys();
 
+// Detects the system language on Nintendo Switch and maps to XLanguage ID (1=EN, 2=JA, 3=DE, 4=FR, 5=ES, 6=IT, etc.).
+uint32_t DetectSwitchSystemLanguage();
+
 }  // namespace sa2::render
