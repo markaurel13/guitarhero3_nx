@@ -25,6 +25,7 @@
 #include <rex/logging.h>
 #include <rex/string.h>
 #include <rex/string/utf8.h>
+#include <rex/system/flags.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xam/content_device.h>
 #include <rex/system/xam/content_manager.h>
@@ -163,6 +164,89 @@ bool CopyFolder(const std::filesystem::path& source, const std::filesystem::path
     }
   }
   return ok;
+}
+
+// Guitar Hero 3 localized save container names
+static bool IsGh3SaveName(std::string_view name) {
+  std::string lower;
+  lower.reserve(name.size());
+  for (unsigned char c : name) {
+    lower.push_back(static_cast<char>(std::tolower(c)));
+  }
+  return lower == "progress" || lower == "progreso" || lower == "progres" ||
+         lower == "progrès" || lower == "progr\xc3\xa8s" ||
+         lower == "fortschritt" || lower == "progresso";
+}
+
+static constexpr const char* kCanonicalGh3SaveName = "Progress";
+
+static std::string GetGh3SaveNameForLanguage(rex::system::XLanguage language) {
+  switch (language) {
+    case rex::system::XLanguage::kSpanish:
+      return "Progreso";
+    case rex::system::XLanguage::kFrench:
+      return "Progrès";
+    case rex::system::XLanguage::kGerman:
+      return "Fortschritt";
+    case rex::system::XLanguage::kItalian:
+      return "Progresso";
+    case rex::system::XLanguage::kEnglish:
+    default:
+      return "Progress";
+  }
+}
+
+// Automatically migrates any existing localized save (e.g. Spanish 'Progreso') into canonical 'Progress'
+static void MigrateGh3SavesIfNeeded(const std::filesystem::path& save_base_dir) {
+  std::error_code ec;
+  if (!std::filesystem::exists(save_base_dir, ec) || !std::filesystem::is_directory(save_base_dir, ec)) {
+    return;
+  }
+
+  const std::filesystem::path canonical_dir = save_base_dir / kCanonicalGh3SaveName;
+  const std::filesystem::path marker = canonical_dir / ".migrated_gh3_save";
+
+  if (std::filesystem::exists(marker, ec)) {
+    return;
+  }
+
+  const std::vector<std::string> candidates = {
+    "Progreso", "progrès", "Progrès", "Progres", "Fortschritt", "Progresso"
+  };
+
+  std::filesystem::path best_source;
+  bool found_candidate = false;
+
+  for (const auto& cand_name : candidates) {
+    std::filesystem::path cand_dir = save_base_dir / cand_name;
+    if (cand_dir == canonical_dir) continue;
+    if (!std::filesystem::exists(cand_dir, ec) || !std::filesystem::is_directory(cand_dir, ec)) {
+      continue;
+    }
+
+    std::filesystem::path s000 = cand_dir / "s000.d";
+    if (std::filesystem::exists(s000, ec)) {
+      best_source = cand_dir;
+      found_candidate = true;
+      break;
+    }
+  }
+
+  if (found_candidate) {
+    // If canonical dir already exists, backup before overwriting with the user's localized save
+    if (std::filesystem::exists(canonical_dir, ec)) {
+      uint32_t bak_files = 0;
+      CopyFolder(canonical_dir, save_base_dir / "Progress.bak", bak_files);
+    }
+    uint32_t copied_files = 0;
+    CopyFolder(best_source, canonical_dir, copied_files);
+    REXSYS_INFO("[save] GH3: Migrated {} file(s) from '{}' to canonical shared save '{}'",
+                copied_files, rex::path_to_utf8(best_source), rex::path_to_utf8(canonical_dir));
+  }
+
+  if (std::filesystem::exists(canonical_dir, ec)) {
+    rex::filesystem::CreateEmptyFile(marker);
+  }
 }
 
 // The readable copy: <content_backup_root>/<profile>/current, and the previous one to <profile>/previous.
@@ -341,6 +425,11 @@ std::filesystem::path ContentManager::ResolvePackagePath(uint64_t xuid,
   auto content_type_str = fmt::format("{:08X}", uint32_t(XContentType(data.content_type)));
   auto fname = rex::to_path(data.file_name());
 
+  // Canonicalize GH3 save container name so all languages share the exact same save
+  if (data.content_type == XContentType::kSavedGame && IsGh3SaveName(data.file_name())) {
+    fname = rex::to_path(kCanonicalGh3SaveName);
+  }
+
   std::string title_lower = title_id_str;
   for (char& c : title_lower) c = static_cast<char>(std::tolower(c));
 
@@ -350,6 +439,13 @@ std::filesystem::path ContentManager::ResolvePackagePath(uint64_t xuid,
     clean_str.pop_back();
   }
   clean_root = std::filesystem::path(clean_str);
+
+  if (data.content_type == XContentType::kSavedGame) {
+    MigrateGh3SavesIfNeeded(clean_root / xuid_str / title_id_str / content_type_str);
+    MigrateGh3SavesIfNeeded(clean_root / title_id_str / content_type_str);
+    MigrateGh3SavesIfNeeded(clean_root / xuid_str / title_lower / content_type_str);
+    MigrateGh3SavesIfNeeded(clean_root / title_lower / content_type_str);
+  }
 
   // Candidate paths where the package file or directory might exist:
   std::vector<std::filesystem::path> candidates;
@@ -413,15 +509,36 @@ std::filesystem::path ContentManager::ResolvePackageHeaderPath(const std::string
     xuid = 0;
   }
 
+  std::string_view actual_file_name = file_name;
+  if (content_type == XContentType::kSavedGame && IsGh3SaveName(file_name)) {
+    actual_file_name = kCanonicalGh3SaveName;
+  }
+
   auto xuid_str = fmt::format("{:016X}", xuid);
   auto title_id_str = fmt::format("{:08X}", title_id);
   auto content_type_str = fmt::format("{:08X}", uint32_t(content_type));
-  std::string final_name = std::string(file_name) + ".header";
+  std::string final_name = std::string(actual_file_name) + ".header";
+
+  auto canonical_header = root_path_ / xuid_str / title_id_str / kGameContentHeaderDirName / content_type_str /
+                          final_name;
+
+  if (content_type == XContentType::kSavedGame && actual_file_name == kCanonicalGh3SaveName) {
+    std::error_code ec;
+    if (!std::filesystem::exists(canonical_header, ec)) {
+      for (const auto& alt : {"Progreso", "progrès", "Progrès", "Progres", "Fortschritt", "Progresso"}) {
+        auto alt_header = root_path_ / xuid_str / title_id_str / kGameContentHeaderDirName / content_type_str /
+                          (std::string(alt) + ".header");
+        if (std::filesystem::exists(alt_header, ec)) {
+          CopyFile(alt_header, canonical_header);
+          break;
+        }
+      }
+    }
+  }
 
   // Header root path:
   // content_root/xuid/title_id/Headers/content_type/filename.header
-  return root_path_ / xuid_str / title_id_str / kGameContentHeaderDirName / content_type_str /
-         final_name;
+  return canonical_header;
 }
 
 std::vector<XCONTENT_AGGREGATE_DATA> ContentManager::ListContent(uint32_t device_id, uint64_t xuid,
@@ -503,6 +620,9 @@ std::vector<XCONTENT_AGGREGATE_DATA> ContentManager::ListContent(uint32_t device
   std::unordered_set<std::string> seen_names;
 
   for (const auto& package_root : search_paths) {
+    if (content_type == XContentType::kSavedGame) {
+      MigrateGh3SavesIfNeeded(package_root);
+    }
     auto file_infos = rex::filesystem::ListFiles(package_root);
     REXSYS_INFO("[dlc] in '{}', found {} item(s)", rex::path_to_utf8(package_root), file_infos.size());
     for (const auto& file_info : file_infos) {
@@ -575,6 +695,39 @@ std::vector<XCONTENT_AGGREGATE_DATA> ContentManager::ListContent(uint32_t device
           }
         }
         if (found_stfs_inside) {
+          continue;
+        }
+
+        if (content_type == XContentType::kSavedGame && IsGh3SaveName(name_str)) {
+          // Canonical GH3 save handling: mark all known aliases as seen
+          for (const auto& alt : {"Progress", "Progreso", "progrès", "Progrès", "Progres", "Fortschritt", "Progresso"}) {
+            seen_names.insert(alt);
+          }
+
+          auto current_lang = static_cast<rex::system::XLanguage>(REXCVAR_GET(user_language));
+          std::string expected_name = GetGh3SaveNameForLanguage(current_lang);
+
+          // Add entry matching the active game language
+          XCONTENT_AGGREGATE_DATA content_data;
+          content_data.device_id = device_id;
+          content_data.content_type = content_type;
+          content_data.set_display_name(rex::string::to_utf16(expected_name));
+          content_data.set_file_name(expected_name);
+          content_data.title_id = title_id;
+          content_data.xuid = xuid;
+          result.emplace_back(std::move(content_data));
+
+          // Also register canonical "Progress" if active language is not English
+          if (expected_name != kCanonicalGh3SaveName) {
+            XCONTENT_AGGREGATE_DATA canon_data;
+            canon_data.device_id = device_id;
+            canon_data.content_type = content_type;
+            canon_data.set_display_name(rex::string::to_utf16(kCanonicalGh3SaveName));
+            canon_data.set_file_name(kCanonicalGh3SaveName);
+            canon_data.title_id = title_id;
+            canon_data.xuid = xuid;
+            result.emplace_back(std::move(canon_data));
+          }
           continue;
         }
 
@@ -922,7 +1075,13 @@ ContentManager::FindOpenPackageByData(const XCONTENT_AGGREGATE_DATA& data) {
 
     // Match on content_type + file_name + resolved title_id.
     // device_id is a virtual storage selector, not a content identifier.
-    if (data.content_type == pkg.content_type && data.file_name() == pkg.file_name() &&
+    bool name_matches = (data.file_name() == pkg.file_name());
+    if (!name_matches && data.content_type == XContentType::kSavedGame &&
+        IsGh3SaveName(data.file_name()) && IsGh3SaveName(pkg.file_name())) {
+      name_matches = true;
+    }
+
+    if (data.content_type == pkg.content_type && name_matches &&
         query_title == pkg_title) {
       return it;
     }

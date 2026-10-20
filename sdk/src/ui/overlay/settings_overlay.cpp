@@ -17,6 +17,7 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <fstream>
 #include <map>
 #include <mutex>
 #include <set>
@@ -34,6 +35,62 @@ std::mutex& MutexHiddenSettings() {
 std::set<std::string>& HiddenSettings() {
   static std::set<std::string> hidden;
   return hidden;
+}
+
+void UpdateConfigFileGuitarMode(const std::filesystem::path& folder, int mode) {
+  std::error_code ec;
+  bool updated_any = false;
+  for (const auto& cfg_name : {"config", "config.txt", "config.ini"}) {
+    auto cfg_path = folder / cfg_name;
+    if (std::filesystem::exists(cfg_path, ec)) {
+      std::ifstream infile(cfg_path);
+      if (!infile.is_open()) continue;
+      std::vector<std::string> lines;
+      std::string line;
+      bool found = false;
+      while (std::getline(infile, line)) {
+        std::string check = line;
+        auto start = check.find_first_not_of(" \t\r\n");
+        if (start != std::string::npos && check[start] != '#') {
+          auto eq = check.find('=');
+          if (eq != std::string::npos) {
+            std::string key = check.substr(0, eq);
+            auto kstart = key.find_first_not_of(" \t\r\n");
+            auto kend = key.find_last_not_of(" \t\r\n");
+            if (kstart != std::string::npos) {
+              key = key.substr(kstart, kend - kstart + 1);
+              if (key == "guitar" || key == "input_guitar_mode" || key == "wii_guitar") {
+                line = "guitar = " + std::to_string(mode);
+                found = true;
+              }
+            }
+          }
+        }
+        lines.push_back(line);
+      }
+      infile.close();
+
+      if (!found) {
+        lines.push_back("guitar = " + std::to_string(mode));
+      }
+
+      std::ofstream outfile(cfg_path, std::ios::trunc);
+      if (outfile.is_open()) {
+        for (const auto& l : lines) {
+          outfile << l << "\n";
+        }
+        updated_any = true;
+      }
+    }
+  }
+  if (!updated_any) {
+    auto cfg_path = folder / "config";
+    std::ofstream outfile(cfg_path, std::ios::trunc);
+    if (outfile.is_open()) {
+      outfile << "# GUITAR HERO III NX - CONFIG\n";
+      outfile << "guitar = " + std::to_string(mode) + "\n";
+    }
+  }
 }
 }  // namespace
 
@@ -326,6 +383,9 @@ void SettingsDialog::OnDraw(ImGuiIO& /*io*/) {
     if (hidden.count(entry.name)) {
       continue;  // Fork addition: HideSettingsInMenu
     }
+    if (entry.name == "input_wii_guitar") {
+      continue;  // Handled intuitively via input_guitar_mode
+    }
     // Filter by category (unless searching).
     if (!searching) {
       if (!category_matches(entry.category)) {
@@ -355,10 +415,6 @@ void SettingsDialog::OnDraw(ImGuiIO& /*io*/) {
       ImGui::BeginDisabled();
 
     std::string current_val = entry.getter();
-
-    // Use description as display label if available, otherwise CVAR name
-    const char* display_label =
-        (!entry.description.empty()) ? entry.description.c_str() : entry.name.c_str();
 
     if (is_keybind_category(entry.category)) {
       // Grey out controller keybinds when MnK mode is disabled
@@ -466,64 +522,127 @@ void SettingsDialog::OnDraw(ImGuiIO& /*io*/) {
       }
       ImGui::SameLine(240.0f);
 
-      ImGui::SetNextItemWidth(160.0f);
-      if (entry.type == rex::cvar::FlagType::Boolean) {
-        bool v = rex::string::from_string<bool>(current_val, false);
-        if (ImGui::Checkbox("##v", &v)) {
-          rex::cvar::SetFlagByName(entry.name, v ? "true" : "false");
+      if (entry.name == "input_guitar_mode") {
+        int v = std::atoi(current_val.c_str());
+        int cur_mode = std::clamp(v, 0, 2);
+        if (cur_mode == 0 && rex::cvar::Query<bool>("input_wii_guitar")) {
+          cur_mode = 1;
         }
-      } else if (entry.type == rex::cvar::FlagType::String &&
-                 !entry.constraints.allowed_values.empty()) {
-        const auto& opts = entry.constraints.allowed_values;
-        int cur_idx = 0;
-        for (int i = 0; i < static_cast<int>(opts.size()); ++i) {
-          if (opts[i] == current_val) {
-            cur_idx = i;
-            break;
-          }
-        }
-        if (ImGui::BeginCombo("##v", opts[cur_idx].c_str())) {
-          for (int i = 0; i < static_cast<int>(opts.size()); ++i) {
-            bool sel = (i == cur_idx);
-            if (ImGui::Selectable(opts[i].c_str(), sel)) {
-              rex::cvar::SetFlagByName(entry.name, opts[i]);
+
+        const char* mode_labels[] = {
+            "0: Mando Normal (Gamepad)",
+            "1: Guitarra Wii (MissionControl BT)",
+            "2: Guitarra USB (Xbox/PS3/Santroller)"
+        };
+        ImGui::SetNextItemWidth(280.0f);
+        bool changed = false;
+        if (ImGui::BeginCombo("##guitar_mode", mode_labels[cur_mode])) {
+          for (int i = 0; i < 3; ++i) {
+            bool is_selected = (cur_mode == i);
+            if (ImGui::Selectable(mode_labels[i], is_selected)) {
+              cur_mode = i;
+              changed = true;
             }
-            if (sel)
+            if (is_selected) {
               ImGui::SetItemDefaultFocus();
+            }
           }
           ImGui::EndCombo();
         }
-      } else if (entry.type == rex::cvar::FlagType::Int32 ||
-                 entry.type == rex::cvar::FlagType::Int64 ||
-                 entry.type == rex::cvar::FlagType::Uint32 ||
-                 entry.type == rex::cvar::FlagType::Uint64) {
-        int v = std::atoi(current_val.c_str());
-        int vmin =
-            entry.constraints.min.has_value() ? static_cast<int>(*entry.constraints.min) : INT_MIN;
-        int vmax =
-            entry.constraints.max.has_value() ? static_cast<int>(*entry.constraints.max) : INT_MAX;
-        if (ImGui::InputInt("##v", &v)) {
-          v = std::clamp(v, vmin, vmax);
-          rex::cvar::SetFlagByName(entry.name, std::to_string(v));
+
+        ImGui::Indent(240.0f);
+        if (ImGui::RadioButton("Mando (0)", cur_mode == 0)) {
+          cur_mode = 0;
+          changed = true;
         }
-      } else if (entry.type == rex::cvar::FlagType::Double) {
-        double v = std::atof(current_val.c_str());
-        if (ImGui::InputDouble("##v", &v, 0.0, 0.0, "%.4f")) {
-          if (entry.constraints.min)
-            v = std::max(v, *entry.constraints.min);
-          if (entry.constraints.max)
-            v = std::min(v, *entry.constraints.max);
-          rex::cvar::SetFlagByName(entry.name, std::to_string(v));
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Wii BT (1)", cur_mode == 1)) {
+          cur_mode = 1;
+          changed = true;
         }
-      } else if (entry.type == rex::cvar::FlagType::Command) {
-        if (ImGui::Button(std::string(entry.name + "##v").c_str())) {
-          entry.command_callback("");
+        ImGui::SameLine();
+        if (ImGui::RadioButton("USB (2)", cur_mode == 2)) {
+          cur_mode = 2;
+          changed = true;
+        }
+
+        if (cur_mode == 0) {
+          ImGui::TextDisabled("Modo Mando: Joy-Con / Switch Pro Controller (Mando normal)");
+        } else if (cur_mode == 1) {
+          ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.0f, 1.0f),
+                             "Guitarra Wii: A=Verde, ZL=Rojo, Y=Amarillo, X=Azul, B=Naranja");
+        } else if (cur_mode == 2) {
+          ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.5f, 1.0f),
+                             "Guitarra USB: A=Verde, B=Rojo, Y=Amarillo, X=Azul, L/ZL=Naranja");
+        }
+        ImGui::Unindent(240.0f);
+
+        if (changed) {
+          rex::cvar::SetFlagByName("input_guitar_mode", std::to_string(cur_mode));
+          rex::cvar::SetFlagByName("input_wii_guitar", cur_mode == 1 ? "true" : "false");
+          rex::cvar::SaveConfig(config_path_);
+          UpdateConfigFileGuitarMode(config_path_.parent_path(), cur_mode);
         }
       } else {
-        char buf[256];
-        rex::string::copy_truncating(buf, current_val, sizeof(buf));
-        if (ImGui::InputText("##v", buf, sizeof(buf), ImGuiInputTextFlags_EnterReturnsTrue)) {
-          rex::cvar::SetFlagByName(entry.name, buf);
+        ImGui::SetNextItemWidth(160.0f);
+        if (entry.type == rex::cvar::FlagType::Boolean) {
+          bool v = rex::string::from_string<bool>(current_val, false);
+          if (ImGui::Checkbox("##v", &v)) {
+            rex::cvar::SetFlagByName(entry.name, v ? "true" : "false");
+          }
+        } else if (entry.type == rex::cvar::FlagType::String &&
+                   !entry.constraints.allowed_values.empty()) {
+          const auto& opts = entry.constraints.allowed_values;
+          int cur_idx = 0;
+          for (int i = 0; i < static_cast<int>(opts.size()); ++i) {
+            if (opts[i] == current_val) {
+              cur_idx = i;
+              break;
+            }
+          }
+          if (ImGui::BeginCombo("##v", opts[cur_idx].c_str())) {
+            for (int i = 0; i < static_cast<int>(opts.size()); ++i) {
+              bool sel = (i == cur_idx);
+              if (ImGui::Selectable(opts[i].c_str(), sel)) {
+                rex::cvar::SetFlagByName(entry.name, opts[i]);
+              }
+              if (sel)
+                ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+          }
+        } else if (entry.type == rex::cvar::FlagType::Int32 ||
+                   entry.type == rex::cvar::FlagType::Int64 ||
+                   entry.type == rex::cvar::FlagType::Uint32 ||
+                   entry.type == rex::cvar::FlagType::Uint64) {
+          int v = std::atoi(current_val.c_str());
+          int vmin =
+              entry.constraints.min.has_value() ? static_cast<int>(*entry.constraints.min) : INT_MIN;
+          int vmax =
+              entry.constraints.max.has_value() ? static_cast<int>(*entry.constraints.max) : INT_MAX;
+          if (ImGui::InputInt("##v", &v)) {
+            v = std::clamp(v, vmin, vmax);
+            rex::cvar::SetFlagByName(entry.name, std::to_string(v));
+          }
+        } else if (entry.type == rex::cvar::FlagType::Double) {
+          double v = std::atof(current_val.c_str());
+          if (ImGui::InputDouble("##v", &v, 0.0, 0.0, "%.4f")) {
+            if (entry.constraints.min)
+              v = std::max(v, *entry.constraints.min);
+            if (entry.constraints.max)
+              v = std::min(v, *entry.constraints.max);
+            rex::cvar::SetFlagByName(entry.name, std::to_string(v));
+          }
+        } else if (entry.type == rex::cvar::FlagType::Command) {
+          if (ImGui::Button(std::string(entry.name + "##v").c_str())) {
+            entry.command_callback("");
+          }
+        } else {
+          char buf[256];
+          rex::string::copy_truncating(buf, current_val, sizeof(buf));
+          if (ImGui::InputText("##v", buf, sizeof(buf), ImGuiInputTextFlags_EnterReturnsTrue)) {
+            rex::cvar::SetFlagByName(entry.name, buf);
+          }
         }
       }
     }
@@ -540,6 +659,7 @@ void SettingsDialog::OnDraw(ImGuiIO& /*io*/) {
   ImGui::Separator();
   if (ImGui::Button("Save to config")) {
     rex::cvar::SaveConfig(config_path_);
+    UpdateConfigFileGuitarMode(config_path_.parent_path(), rex::cvar::Query<int32_t>("input_guitar_mode"));
   }
   ImGui::SameLine();
   ImGui::TextDisabled("(%s)", config_path_.filename().string().c_str());
